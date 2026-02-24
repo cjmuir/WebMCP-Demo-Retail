@@ -856,7 +856,7 @@ function mountApp() {
   renderProducts();
   renderCart();
 
-  const name = idTokenClaims?.name || idTokenClaims?.email || idTokenClaims?.sub || "User";
+  const name = idTokenClaims?.name || idTokenClaims?.preferred_username || idTokenClaims?.email || idTokenClaims?.sub || "User";
   document.getElementById("nav-username").textContent = name;
 
   renderTokenInspector(idTokenClaims, idTokenRaw);
