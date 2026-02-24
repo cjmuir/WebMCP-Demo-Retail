@@ -112,19 +112,62 @@ async function exchangeCode(code) {
 // ============================================================
 
 const toolRegistry = {};
+const nativeRegisteredTools = new Set();
 
-function registerTool(name, descriptor, handler) {
-  toolRegistry[name] = { descriptor, handler };
+function ensureModelContextShim() {
+  if (typeof navigator === "undefined") return null;
 
-  // Register with native WebMCP if available
-  if (typeof navigator !== "undefined" && navigator.modelContext?.registerTool) {
+  if (!navigator.modelContext) {
+    const shim = {
+      __shopMcpShim: true,
+      async registerTool(name, descriptor, handler) {
+        toolRegistry[name] = { descriptor, handler };
+      },
+      listTools() {
+        return Object.entries(toolRegistry).map(([name, value]) => ({
+          name,
+          description: value.descriptor?.description || "",
+          parameters: value.descriptor?.parameters || {},
+        }));
+      },
+      async callTool(name, args = {}) {
+        const tool = toolRegistry[name];
+        if (!tool) throw new Error(`Unknown tool: ${name}`);
+        return tool.handler(args);
+      },
+    };
+
+    navigator.modelContext = shim;
+  }
+
+  return navigator.modelContext;
+}
+
+function registerToolsWithNativeModelContext() {
+  if (typeof navigator === "undefined" || !navigator.modelContext?.registerTool) return;
+  if (navigator.modelContext.__shopMcpShim) return;
+
+  Object.entries(toolRegistry).forEach(([name, value]) => {
+    if (nativeRegisteredTools.has(name)) return;
     try {
-      navigator.modelContext.registerTool(name, descriptor, handler);
+      navigator.modelContext.registerTool(name, value.descriptor, value.handler);
+      nativeRegisteredTools.add(name);
       logToolEvent(`Registered tool "${name}" via navigator.modelContext`);
     } catch (e) {
       logToolEvent(`navigator.modelContext.registerTool unavailable: ${e.message}`, "warn");
     }
+  });
+}
+
+function registerTool(name, descriptor, handler) {
+  toolRegistry[name] = { descriptor, handler };
+
+  const modelContext = ensureModelContextShim();
+  if (modelContext?.__shopMcpShim && modelContext.registerTool) {
+    modelContext.registerTool(name, descriptor, handler);
   }
+
+  registerToolsWithNativeModelContext();
 }
 
 // Tool: view_products
@@ -546,6 +589,19 @@ function mountApp() {
 // ============================================================
 
 async function boot() {
+  ensureModelContextShim();
+
+  // Some browser extensions inject modelContext after page scripts run.
+  // Retry registration briefly so tools are discoverable in MCP explorers.
+  let attempts = 0;
+  const registrationTimer = setInterval(() => {
+    registerToolsWithNativeModelContext();
+    attempts += 1;
+    if (attempts >= 20 || Object.keys(toolRegistry).every(name => nativeRegisteredTools.has(name))) {
+      clearInterval(registrationTimer);
+    }
+  }, 500);
+
   // Check if we're returning from an OIDC redirect
   const isCallback = await handleCallback();
   if (isCallback) return;
