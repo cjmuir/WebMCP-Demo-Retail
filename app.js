@@ -272,6 +272,21 @@ registerTool(
   }
 );
 
+// Tool: view_cart
+registerTool(
+  "view_cart",
+  {
+    description: "Returns the current cart contents and total as JSON.",
+    parameters: {},
+  },
+  async () => {
+    return {
+      ...cartSummary(),
+      item_count: Object.values(cart).reduce((n, qty) => n + qty, 0),
+    };
+  }
+);
+
 // Tool: checkout
 registerTool(
   "checkout",
@@ -519,14 +534,12 @@ document.addEventListener("click", async (e) => {
 
   const toolName = btn.dataset.tool;
 
-  if (toolName === "view_products") {
-    await invokeTool("view_products");
-  } else if (toolName === "add_to_cart") {
+  if (toolName === "add_to_cart") {
     const id  = document.getElementById("tool-product-id").value;
     const qty = parseInt(document.getElementById("tool-qty").value, 10) || 1;
     await invokeTool("add_to_cart", { product_id: id, quantity: qty });
-  } else if (toolName === "checkout") {
-    await invokeTool("checkout");
+  } else {
+    await invokeTool(toolName);
   }
 });
 
