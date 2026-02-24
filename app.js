@@ -152,25 +152,31 @@ function registerToolsWithNativeModelContext() {
     if (nativeRegisteredTools.has(name)) return;
 
     const inputSchema = value.descriptor?.parameters || { type: "object", properties: {} };
+    const annotations = value.descriptor?.annotations;
     const candidates = [
+      // Primary: W3C WebMCP spec form — single object, 'execute' key, optional annotations
+      () => navigator.modelContext.registerTool({
+        name,
+        description: value.descriptor?.description || "",
+        inputSchema,
+        execute: value.handler,
+        ...(annotations && { annotations }),
+      }),
+      // Fallback: 'handler' key (accepted by some extension versions)
       () => navigator.modelContext.registerTool({
         name,
         description: value.descriptor?.description || "",
         inputSchema,
         handler: value.handler,
       }),
+      // Fallback: 'parameters' instead of 'inputSchema'
       () => navigator.modelContext.registerTool({
         name,
         description: value.descriptor?.description || "",
         parameters: inputSchema,
-        handler: value.handler,
-      }),
-      () => navigator.modelContext.registerTool({
-        name,
-        description: value.descriptor?.description || "",
-        schema: inputSchema,
         execute: value.handler,
       }),
+      // Fallback: old 3-argument form
       () => navigator.modelContext.registerTool(name, value.descriptor, value.handler),
     ];
 
@@ -350,6 +356,7 @@ registerTool(
   {
     description: "Fetches the product catalog from the backend API (no auth required).",
     parameters: {},
+    annotations: { readOnlyHint: true },
   },
   async () => {
     const data = await apiRequest("GET", "/products.json");
@@ -401,6 +408,7 @@ registerTool(
   {
     description: "Returns the current cart contents and total as JSON.",
     parameters: {},
+    annotations: { readOnlyHint: true },
   },
   async () => {
     return {
@@ -417,13 +425,17 @@ registerTool(
     description: "POSTs the cart to the checkout API using the user's Bearer token. Requires user confirmation via elicitation before the request is sent.",
     parameters: {},
   },
-  async () => {
+  async (args, client) => {
     if (Object.keys(cart).length === 0) {
       return { error: "Cart is empty. Add items before checkout." };
     }
 
-    // Elicitation: surface confirmation modal, wait for user decision
-    const userDecision = await new Promise((resolve) => showCheckoutModal(resolve));
+    // Elicitation: surface confirmation modal via client.requestUserInteraction
+    // This is the spec-defined channel for a tool to pause and await human input.
+    // client is a ModelContextClient (native) or mockClient (UI calls).
+    const userDecision = await (client?.requestUserInteraction
+      ? client.requestUserInteraction(() => new Promise((resolve) => showCheckoutModal(resolve)))
+      : new Promise((resolve) => showCheckoutModal(resolve)));
 
     if (userDecision.cancelled) return userDecision;
 
@@ -605,27 +617,23 @@ function sanitizeRequestForLog(rawRequest) {
   return copy;
 }
 
+// Per spec, execute(input, client) receives input directly.
+// UI-triggered calls wrap args in { __shopMcpMeta, arguments } so we
+// can distinguish the two call paths for logging.
 function normalizeToolInvocation(rawRequest) {
   const request = rawRequest ?? {};
-  const source = request?.__shopMcpMeta?.source || "navigator.modelContext";
-
-  if (request && typeof request === "object") {
-    if (request.arguments && typeof request.arguments === "object") {
-      return { source, args: request.arguments, requestForLog: sanitizeRequestForLog(request) };
-    }
-    if (request.params && typeof request.params === "object") {
-      return { source, args: request.params, requestForLog: sanitizeRequestForLog(request) };
-    }
-    if (request.input && typeof request.input === "object") {
-      return { source, args: request.input, requestForLog: sanitizeRequestForLog(request) };
-    }
-  }
-
-  return { source, args: request, requestForLog: sanitizeRequestForLog(request) };
+  const isUiCall = request?.__shopMcpMeta?.source === "ui";
+  const source = isUiCall ? "ui" : "navigator.modelContext";
+  const args = isUiCall ? (request.arguments ?? {}) : request;
+  const requestForLog = sanitizeRequestForLog(request);
+  return { source, args, requestForLog };
 }
 
+// execute(input, client) — spec-compliant two-arg signature.
+// client is a ModelContextClient (native) or our mockClient (UI calls).
+// Return value is wrapped in { content: [{ type: "text", text }] } per spec.
 function createInstrumentedToolHandler(name, handler) {
-  return async (rawRequest = {}) => {
+  return async (rawRequest = {}, client) => {
     const { source, args, requestForLog } = normalizeToolInvocation(rawRequest);
     const started = Date.now();
 
@@ -642,12 +650,13 @@ function createInstrumentedToolHandler(name, handler) {
     }
 
     try {
-      const result = await handler(args);
+      const result = await handler(args, client);
       logToolEvent(
         `← [${source}] ${name} response (${Date.now() - started}ms): ${stringifyForLog(result)}`,
         "result"
       );
-      return result;
+      // Spec-compliant return: { content: [{ type: "text", text: "..." }] }
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     } catch (err) {
       const message = err?.message || String(err);
       logToolEvent(`← [${source}] ${name} error: ${message}`, "error");
@@ -662,11 +671,18 @@ async function invokeTool(name, args = {}) {
     logToolEvent(`Unknown tool: ${name}`, "error");
     return;
   }
+
+  // Mock ModelContextClient for UI-triggered calls.
+  // requestUserInteraction invokes the callback immediately (modal is already in-page).
+  const mockClient = {
+    requestUserInteraction: async (callback) => callback(),
+  };
+
   try {
-    await tool.handler({
-      __shopMcpMeta: { source: "ui" },
-      arguments: args,
-    });
+    await tool.handler(
+      { __shopMcpMeta: { source: "ui" }, arguments: args },
+      mockClient
+    );
   } catch (err) {
     logToolEvent(`Tool error: ${err.message}`, "error");
   }
@@ -754,10 +770,11 @@ function renderProducts() {
   grid.querySelectorAll(".btn-add-to-cart").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.productId;
-      await toolRegistry["add_to_cart"].handler({
-        __shopMcpMeta: { source: "ui" },
-        arguments: { product_id: id, quantity: 1 },
-      });
+      const mockClient = { requestUserInteraction: async (cb) => cb() };
+      await toolRegistry["add_to_cart"].handler(
+        { __shopMcpMeta: { source: "ui" }, arguments: { product_id: id, quantity: 1 } },
+        mockClient
+      );
       btn.textContent = "Added ✓";
       setTimeout(() => { btn.textContent = "Add to cart"; }, 1200);
     });
