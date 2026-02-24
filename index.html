@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopMCP — WebMCP Retail Demo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       UNAUTHENTICATED VIEW
+  ============================================================ -->
+  <div id="view-login" class="view">
+    <div class="login-shell">
+      <div class="login-card">
+        <div class="brand">
+          <span class="brand-icon">🛍</span>
+          <h1>ShopMCP</h1>
+          <p class="brand-tagline">A WebMCP Retail Demo</p>
+        </div>
+
+        <div class="narrative-block">
+          <p>
+            This demo shows that <strong>session + client_id is sufficient
+            for agent identity</strong> — no separate agent OAuth required.
+          </p>
+          <p>
+            Sign in with PingOne to open the storefront. An AI agent
+            interacts with the store through WebMCP tools using your
+            existing session. The <code>client_id</code> in the token
+            is all the identity signal needed.
+          </p>
+        </div>
+
+        <button id="btn-login" class="btn-primary btn-lg">
+          Sign in with PingOne
+        </button>
+
+        <p class="login-footnote">
+          Auth via PingOne OIDC &mdash; <code>openid profile</code>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       AUTHENTICATED VIEW
+  ============================================================ -->
+  <div id="view-app" class="view hidden">
+
+    <!-- Top nav -->
+    <header class="topnav">
+      <div class="topnav-left">
+        <span class="brand-icon-sm">🛍</span>
+        <span class="brand-name">ShopMCP</span>
+        <span class="demo-badge">WebMCP Demo</span>
+      </div>
+      <div class="topnav-right">
+        <span id="nav-username" class="nav-username"></span>
+        <button id="btn-logout" class="btn-ghost btn-sm">Sign out</button>
+      </div>
+    </header>
+
+    <div class="app-layout">
+
+      <!-- ======================================================
+           LEFT COLUMN: Store + Cart
+      ====================================================== -->
+      <main class="store-column">
+
+        <!-- Product grid -->
+        <section class="section-products">
+          <h2 class="section-title">Products</h2>
+          <div id="product-grid" class="product-grid">
+            <!-- Populated by JS -->
+          </div>
+        </section>
+
+        <!-- Cart -->
+        <section class="section-cart">
+          <h2 class="section-title">
+            Cart
+            <span id="cart-count" class="cart-badge">0</span>
+          </h2>
+          <div id="cart-list" class="cart-list">
+            <p class="cart-empty">Your cart is empty.</p>
+          </div>
+          <div id="cart-footer" class="cart-footer hidden">
+            <div class="cart-total">
+              Total: <strong id="cart-total">$0.00</strong>
+            </div>
+            <button id="btn-checkout" class="btn-primary">
+              Checkout
+            </button>
+          </div>
+        </section>
+
+        <!-- Confirmation modal -->
+        <div id="modal-checkout" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <div class="modal-backdrop"></div>
+          <div class="modal-card">
+            <h3 id="modal-title">Confirm Purchase</h3>
+            <p id="modal-summary" class="modal-summary"></p>
+            <div class="modal-note">
+              <span class="elicitation-label">WebMCP Elicitation</span>
+              The agent has requested checkout. Your confirmation is required before any purchase is completed.
+            </div>
+            <div class="modal-actions">
+              <button id="modal-cancel" class="btn-ghost">Cancel</button>
+              <button id="modal-confirm" class="btn-primary">Confirm Purchase</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Order success -->
+        <div id="order-success" class="order-success hidden">
+          <div class="success-icon">✓</div>
+          <h3>Order Placed!</h3>
+          <p id="order-detail"></p>
+          <button id="btn-continue" class="btn-ghost btn-sm">Continue Shopping</button>
+        </div>
+
+      </main>
+
+      <!-- ======================================================
+           RIGHT COLUMN: Agent Console + Token Inspector
+      ====================================================== -->
+      <aside class="inspector-column">
+
+        <!-- Agent tool console -->
+        <section class="panel panel-console">
+          <div class="panel-header">
+            <span class="panel-icon">⚙</span>
+            <h3>WebMCP Tool Console</h3>
+            <span class="panel-badge">3 tools registered</span>
+          </div>
+          <p class="panel-desc">
+            Simulate agent tool calls. In production, an AI agent would
+            invoke these via <code>navigator.modelContext</code>.
+          </p>
+
+          <div class="tool-list">
+
+            <!-- view_products -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <code class="tool-name">view_products</code>
+                <span class="tool-label">GET</span>
+              </div>
+              <p class="tool-desc">Returns the full product catalog as JSON.</p>
+              <button class="btn-tool" data-tool="view_products">
+                Call tool
+              </button>
+            </div>
+
+            <!-- add_to_cart -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <code class="tool-name">add_to_cart</code>
+                <span class="tool-label tool-label-mutate">MUTATE</span>
+              </div>
+              <p class="tool-desc">Adds an item to the cart by product ID and quantity.</p>
+              <div class="tool-inputs">
+                <label>
+                  Product ID
+                  <select id="tool-product-id">
+                    <!-- Populated by JS -->
+                  </select>
+                </label>
+                <label>
+                  Qty
+                  <input id="tool-qty" type="number" value="1" min="1" max="10" />
+                </label>
+              </div>
+              <button class="btn-tool" data-tool="add_to_cart">
+                Call tool
+              </button>
+            </div>
+
+            <!-- checkout -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <code class="tool-name">checkout</code>
+                <span class="tool-label tool-label-confirm">ELICIT</span>
+              </div>
+              <p class="tool-desc">Completes purchase. Requires user confirmation (elicitation).</p>
+              <button class="btn-tool" data-tool="checkout">
+                Call tool
+              </button>
+            </div>
+
+          </div>
+
+          <!-- Tool output log -->
+          <div class="console-log-header">Tool output</div>
+          <div id="tool-log" class="tool-log">
+            <div class="log-entry log-info">Ready. Call a tool above to see output.</div>
+          </div>
+        </section>
+
+        <!-- Token inspector -->
+        <section class="panel panel-token">
+          <div class="panel-header">
+            <span class="panel-icon">🔑</span>
+            <h3>Token Inspector</h3>
+            <span class="panel-badge panel-badge-key">ID Token</span>
+          </div>
+          <p class="panel-desc">
+            Decoded JWT claims from the active PingOne session.
+            The highlighted claim is the agent identity signal.
+          </p>
+
+          <div class="token-highlight-box">
+            <div class="highlight-label">Agent Identity Signal</div>
+            <div class="highlight-content">
+              <span class="claim-key">aud / client_id</span>
+              <span id="token-client-id" class="claim-value claim-value-highlight">—</span>
+            </div>
+            <p class="highlight-note">
+              This <code>client_id</code> identifies which application (agent)
+              obtained the token. No additional agent credential required —
+              the signal is already here.
+            </p>
+          </div>
+
+          <div class="token-narrative">
+            <div class="narrative-step">
+              <span class="step-num">1</span>
+              <div>
+                User authenticates via PingOne OIDC.
+                Session established with signed ID token.
+              </div>
+            </div>
+            <div class="narrative-step">
+              <span class="step-num">2</span>
+              <div>
+                Agent calls WebMCP tools using the
+                <em>same session</em> — no separate OAuth flow.
+              </div>
+            </div>
+            <div class="narrative-step">
+              <span class="step-num">3</span>
+              <div>
+                The <code>client_id</code> in the token tells you
+                this request came through this specific agent.
+                <strong>That's enough.</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="claims-section">
+            <div class="claims-header">All claims</div>
+            <div id="claims-table" class="claims-table">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+        </section>
+
+      </aside>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SCRIPTS
+  ============================================================ -->
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
