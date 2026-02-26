@@ -364,15 +364,36 @@ async function apiRequest(method, path, { body, requiresAuth = false } = {}) {
   return resp.json();
 }
 
+// ============================================================
+// Session guard
+// All tools require an active user session. The OIDC redirect
+// clears all in-page state, so any pre-login tool activity is
+// lost on return. More importantly, the session IS the agent
+// identity signal — without it there is nothing to forward.
+// ============================================================
+
+function requireSession() {
+  if (sessionStorage.getItem("id_token")) return null; // session present
+  return {
+    error: "Session required.",
+    detail: "The user must sign in before any tool can be used. " +
+            "The session establishes identity (id_token) and provides the " +
+            "access_token forwarded as the Bearer credential to protected APIs. " +
+            "No separate agent OAuth is needed — the user's existing session credential is used.",
+  };
+}
+
 // Tool: view_products
 registerTool(
   "view_products",
   {
-    description: "Fetches the product catalog from the backend API (no auth required).",
+    description: "Fetches the product catalog from the backend API. Requires an active user session.",
     parameters: {},
     annotations: { readOnlyHint: true },
   },
   async () => {
+    const sessionError = requireSession();
+    if (sessionError) return sessionError;
     const data = await apiRequest("GET", "/products.json");
     // Keep in-memory PRODUCTS in sync so the UI always works
     if (data?.products) {
@@ -401,6 +422,8 @@ registerTool(
     },
   },
   async ({ product_id, quantity }) => {
+    const sessionError = requireSession();
+    if (sessionError) return sessionError;
     const product = PRODUCTS.find(p => p.id === product_id);
     if (!product) {
       return { error: `Product "${product_id}" not found` };
@@ -420,11 +443,13 @@ registerTool(
 registerTool(
   "view_cart",
   {
-    description: "Returns the current cart contents and total as JSON.",
+    description: "Returns the current cart contents and total as JSON. Requires an active user session.",
     parameters: {},
     annotations: { readOnlyHint: true },
   },
   async () => {
+    const sessionError = requireSession();
+    if (sessionError) return sessionError;
     return {
       ...cartSummary(),
       item_count: Object.values(cart).reduce((n, qty) => n + qty, 0),
@@ -436,21 +461,12 @@ registerTool(
 registerTool(
   "checkout",
   {
-    description: "POSTs the cart to the checkout API using the user's Bearer token. Requires an active user session (access_token). Requires user confirmation via elicitation before the request is sent. Returns an error if the user is not signed in or the cart is empty.",
+    description: "POSTs the cart to the checkout API using the user's access_token as a Bearer credential. Requires an active user session and user confirmation via elicitation before the request is sent. Returns an error if the user is not signed in or the cart is empty.",
     parameters: {},
   },
   async (args, client) => {
-    // Auth pre-check — fail fast with a clear message before touching the cart
-    // or attempting elicitation. The agent needs to know the user must sign in.
-    if (!sessionStorage.getItem("access_token")) {
-      return {
-        error: "Authentication required.",
-        detail: "Checkout requires an active user session. " +
-                "The user must sign in so the browser can obtain an access_token " +
-                "to send as the Bearer credential. No separate agent OAuth is needed — " +
-                "the user's existing session credential is forwarded.",
-      };
-    }
+    const sessionError = requireSession();
+    if (sessionError) return sessionError;
 
     if (Object.keys(cart).length === 0) {
       return { error: "Cart is empty. Add items before checkout." };
