@@ -537,6 +537,12 @@ registerTool(
 // Cart helpers
 // ============================================================
 
+// Update the tool count badge now that all tools are registered
+document.addEventListener("DOMContentLoaded", () => {
+  const badge = document.getElementById("tool-count-badge");
+  if (badge) badge.textContent = `${Object.keys(toolRegistry).length} tools registered`;
+});
+
 function cartSummary() {
   let total = 0;
   const items = Object.entries(cart).map(([id, qty]) => {
