@@ -436,10 +436,22 @@ registerTool(
 registerTool(
   "checkout",
   {
-    description: "POSTs the cart to the checkout API using the user's Bearer token. Requires user confirmation via elicitation before the request is sent.",
+    description: "POSTs the cart to the checkout API using the user's Bearer token. Requires an active user session (access_token). Requires user confirmation via elicitation before the request is sent. Returns an error if the user is not signed in or the cart is empty.",
     parameters: {},
   },
   async (args, client) => {
+    // Auth pre-check — fail fast with a clear message before touching the cart
+    // or attempting elicitation. The agent needs to know the user must sign in.
+    if (!sessionStorage.getItem("access_token")) {
+      return {
+        error: "Authentication required.",
+        detail: "Checkout requires an active user session. " +
+                "The user must sign in so the browser can obtain an access_token " +
+                "to send as the Bearer credential. No separate agent OAuth is needed — " +
+                "the user's existing session credential is forwarded.",
+      };
+    }
+
     if (Object.keys(cart).length === 0) {
       return { error: "Cart is empty. Add items before checkout." };
     }
@@ -674,7 +686,13 @@ function createInstrumentedToolHandler(name, handler) {
     } catch (err) {
       const message = err?.message || String(err);
       logToolEvent(`← [${source}] ${name} error: ${message}`, "error");
-      throw err;
+      // Return errors as structured content rather than throwing.
+      // An agent can read and reason about { error } in content;
+      // a raw exception gives it nothing useful to work with.
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+        isError: true,
+      };
     }
   };
 }
