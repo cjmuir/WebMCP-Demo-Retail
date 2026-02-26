@@ -394,20 +394,21 @@ async function apiRequest(method, path, { body, requiresAuth = false } = {}) {
 
 // ============================================================
 // Session guard
-// All tools require an active user session. The OIDC redirect
-// clears all in-page state, so any pre-login tool activity is
-// lost on return. More importantly, the session IS the agent
-// identity signal — without it there is nothing to forward.
+// All tools gate on access_token — that is the credential they
+// forward to APIs. The id_token is used by the app UI to display
+// user identity, but it is not what tools send to resource servers.
+// If there is no access_token, there is nothing a tool can forward.
 // ============================================================
 
 function requireSession() {
-  if (sessionStorage.getItem("id_token")) return null; // session present
+  if (sessionStorage.getItem("access_token")) return null; // AT present — tools can run
   return {
     error: "Session required.",
     detail: "The user must sign in before any tool can be used. " +
-            "The session establishes identity (id_token) and provides the " +
-            "access_token forwarded as the Bearer credential to protected APIs. " +
-            "No separate agent OAuth is needed — the user's existing session credential is used.",
+            "Tools forward the access_token as the Bearer credential to APIs. " +
+            "The id_token establishes the UI session and carries identity claims, " +
+            "but the access_token is the operative credential for agent tool calls. " +
+            "No separate agent OAuth is needed — the user's existing session token is forwarded.",
   };
 }
 
@@ -996,17 +997,25 @@ async function boot() {
   const isCallback = await handleCallback();
   if (isCallback) return;
 
-  // Check for existing session in sessionStorage
-  const storedToken = sessionStorage.getItem("id_token");
-  if (storedToken) {
-    idTokenRaw = storedToken;
-    idTokenClaims = parseJwt(storedToken);
+  // Check for existing session in sessionStorage.
+  // The access_token is the operative credential for tools — check its expiry.
+  // The id_token is still loaded for UI display (name, token inspector).
+  const storedIdToken = sessionStorage.getItem("id_token");
+  const storedAccessToken = sessionStorage.getItem("access_token");
 
-    // id_token is expired — but the IdP session cookie may still be valid
+  if (storedIdToken) {
+    idTokenRaw = storedIdToken;
+    idTokenClaims = parseJwt(storedIdToken);
+  }
+
+  if (storedAccessToken) {
+    const atClaims = parseJwt(storedAccessToken);
+
+    // access_token expired — but the IdP session cookie may still be valid
     // (it's longer-lived than the JWT). Try a silent token refresh first.
     // If the IdP cookie is also gone, the AS returns login_required and
     // handleCallback will fall back to the interactive login screen.
-    if (idTokenClaims?.exp && idTokenClaims.exp * 1000 < Date.now()) {
+    if (atClaims?.exp && atClaims.exp * 1000 < Date.now()) {
       sessionStorage.clear();
       await startSilentLogin();
       return;
