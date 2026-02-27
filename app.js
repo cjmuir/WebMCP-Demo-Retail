@@ -490,6 +490,36 @@ registerTool(
   }
 );
 
+// Tool: remove_from_cart
+registerTool(
+  "remove_from_cart",
+  {
+    description: "Removes a product entirely from the cart by product ID.",
+    parameters: {
+      type: "object",
+      properties: {
+        product_id: { type: "string", description: "Product ID to remove" },
+      },
+      required: ["product_id"],
+    },
+    ui: {
+      labels: [{text:"MUTATE", cls:"tool-label-mutate"}],
+      desc: "Removes a product from the cart by product ID.",
+    },
+  },
+  async ({ product_id }) => {
+    const sessionError = requireSession();
+    if (sessionError) return sessionError;
+    if (!cart[product_id]) {
+      return { error: `Product "${product_id}" is not in the cart.` };
+    }
+    const removed = { product_id, name: PRODUCTS.find(p => p.id === product_id)?.name };
+    delete cart[product_id];
+    renderCart();
+    return { success: true, removed, cart_summary: cartSummary() };
+  }
+);
+
 // Tool: checkout
 registerTool(
   "checkout",
@@ -623,11 +653,11 @@ function renderCart() {
   total.textContent = `$${summary.total.toFixed(2)}`;
   footer.classList.remove("hidden");
 
-  // Remove buttons
+  // Remove buttons — routed through the tool so the action is logged
+  // and consistent with agent-initiated removals.
   list.querySelectorAll(".cart-remove").forEach(btn => {
     btn.addEventListener("click", () => {
-      delete cart[btn.dataset.id];
-      renderCart();
+      invokeTool("remove_from_cart", { product_id: btn.dataset.id });
     });
   });
 }
