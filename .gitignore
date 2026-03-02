@@ -1,0 +1,7 @@
+# Node
+server/node_modules/
+server/.env
+server/k8s/secret.yaml
+
+# macOS
+.DS_Store

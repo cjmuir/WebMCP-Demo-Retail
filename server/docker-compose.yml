@@ -1,0 +1,25 @@
+# ShopMCP API — local development
+#
+# Usage:
+#   cp .env.example .env   # fill in your values
+#   docker-compose up --build
+#
+# The container restarts automatically when products.json changes (mounted read-only).
+# For code changes, rebuild the image: docker-compose up --build
+
+services:
+  shopapi:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    # Mount products.json so you can edit it without rebuilding the image
+    volumes:
+      - ./products.json:/app/products.json:ro
+    # Restart on crash; in k8s the Deployment handles this
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3

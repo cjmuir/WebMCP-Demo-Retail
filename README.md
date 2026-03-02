@@ -184,6 +184,93 @@ navigator.modelContext.registerTool({
 
 ---
 
+## Optional: Node.js API Server (Docker / k8s)
+
+The default demo serves static JSON from GitHub Pages and simulates the `POST /api/checkout` response client-side. For a real deployment — or to add **PingOne Authorize policy decisions** at checkout — a Node.js backend is included in [`server/`](server/).
+
+```
+server/
+├── server.js              Express entry point, CORS, routes
+├── routes/
+│   ├── products.js        GET  /api/products
+│   └── checkout.js        POST /api/checkout  (AT validation → AZ decision → order)
+├── lib/
+│   ├── token.js           Full JWKS signature validation (jose)
+│   └── pingone-az.js      Client credentials token cache + decision endpoint client
+├── products.json          Product catalog (same data as api/products.json)
+├── Dockerfile             Multi-stage build, non-root user, healthcheck
+├── docker-compose.yml     Local dev — mounts .env, hot-reloads products.json
+├── .env.example           All env vars documented
+└── k8s/
+    ├── namespace.yaml
+    ├── deployment.yaml    Env from Secret, products from ConfigMap
+    ├── service.yaml
+    ├── ingress.yaml       nginx + TLS (cert-manager)
+    ├── configmap.yaml     Product catalog as a ConfigMap
+    └── secret.yaml        Template only — never commit real values
+```
+
+### Checkout trust chain (server-side)
+
+```
+POST /api/checkout
+  Authorization: Bearer <user_AT>
+
+  1. Validate AT signature via PingOne JWKS  (server can do this; browser cannot)
+  2. client_credentials → PingOne worker token  (secret never leaves the server)
+  3. POST /decisionEndpoints/{id}
+       parameters: { user: { sub, client_id, scope }, order: { total, item_count } }
+  4. PERMIT → return order receipt
+     DENY   → 403 { decision, advice }  (agent can explain why to the user)
+```
+
+### Local dev
+
+```bash
+cd server
+cp .env.example .env        # fill in PingOne values
+docker-compose up --build
+```
+
+Then point the frontend at the local server by updating `config.js`:
+
+```js
+SHOP_API_BASE: "http://localhost:3000/api",
+```
+
+Set `ALLOWED_ORIGIN=http://localhost:8080` (or wherever you serve the frontend locally) in `.env`.
+
+Leave `AZ_DECISION_ENDPOINT_ID` blank to skip the Authorize step and auto-PERMIT all checkouts — useful while iterating on the policy.
+
+### k8s deploy
+
+```bash
+# Create namespace
+kubectl apply -f server/k8s/namespace.yaml
+
+# Create secret (imperatively — never commit real values)
+kubectl create secret generic shopapi-secrets \
+  --from-literal=PINGONE_ENVIRONMENT_ID=xxx \
+  --from-literal=AZ_CLIENT_ID=xxx \
+  --from-literal=AZ_CLIENT_SECRET=xxx \
+  --from-literal=AZ_DECISION_ENDPOINT_ID=xxx \
+  -n shopmcp
+
+# Build and push your image
+docker build -t your-registry/shopmcp-api:latest server/
+docker push your-registry/shopmcp-api:latest
+
+# Apply everything else
+kubectl apply -f server/k8s/configmap.yaml
+kubectl apply -f server/k8s/deployment.yaml
+kubectl apply -f server/k8s/service.yaml
+kubectl apply -f server/k8s/ingress.yaml
+```
+
+Update `ALLOWED_ORIGIN` in [server/k8s/deployment.yaml](server/k8s/deployment.yaml) to your GitHub Pages URL, and `SHOP_API_BASE` in [config.js](config.js) to your k8s ingress hostname.
+
+---
+
 ## File Reference
 
 | File | Purpose |
@@ -192,4 +279,5 @@ navigator.modelContext.registerTool({
 | [index.html](index.html) | UI shell — views, nav, token inspector tabs, checkout modal |
 | [styles.css](styles.css) | All styling including tool label badges, token inspector, tools pane toggle |
 | [config.js](config.js) | PingOne OIDC coordinates and API base URL |
-| [api/products.json](api/products.json) | Product catalog — source of truth for names, prices, descriptions, emoji |
+| [api/products.json](api/products.json) | Product catalog for the static GitHub Pages demo |
+| [server/](server/) | Optional Node.js API server with JWKS validation and PingOne Authorize integration |
