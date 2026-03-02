@@ -51,16 +51,12 @@ router.post("/", async (req, res) => {
   }
 
   // ── 4. PingOne Authorize decision ───────────────────────────
-  // `parameters` keys are flat strings whose names must match what the policy expects.
-  // `userContext` is handled inside requestDecision — user.id = claims.sub.
-  // Add any additional policy attributes your Authorize policy references here,
-  // e.g. the agent's client_id if you want the policy to condition on which app
-  // triggered the checkout.
+  // `userContext` carries user identity (handled by requestDecision via claims.sub).
+  // `parameters` carries domain context the policy needs to evaluate this action.
+  // Key names must match the attribute names defined in your P1AZ policy.
   const azParameters = {
     "order.total":      String(total ?? 0),
     "order.item_count": String(items.length),
-    "user.client_id":   claims.client_id ?? claims.azp ?? "",
-    "user.scope":       claims.scope ?? "",
   };
 
   let decision;

@@ -78,11 +78,11 @@ async function getWorkerToken() {
  *   }
  *
  * @param {object} userClaims   Decoded access_token payload (sub, client_id/azp, scope, etc.)
- * @param {object} parameters   Flat key-value object whose keys match the policy's attribute names.
- *                              The caller decides the shape. Values should be strings or numbers.
- *                              client_id and scope from the AT are not injected automatically —
- *                              add them here if your policy references them, using whatever
- *                              name your policy expects (e.g. "user.client_id": claims.client_id).
+ * @param {object} parameters   Flat key-value object whose keys match the attribute names
+ *                              defined in your P1AZ policy. The caller decides the shape;
+ *                              values should be strings or numbers. This is domain context
+ *                              only (e.g. order amounts, product IDs) — user identity is
+ *                              carried by userContext, not here.
  * @returns {Promise<object>}   PingOne Authorize response: { decision, statements, ... }
  */
 export async function requestDecision(userClaims, parameters = {}) {
