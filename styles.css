@@ -455,6 +455,26 @@ code, .mono {
   justify-content: flex-end;
 }
 
+/* OTP input */
+.otp-input-row {
+  margin: .75rem 0;
+}
+.otp-input {
+  width: 100%;
+  padding: .6rem .75rem;
+  font-size: 1.25rem;
+  letter-spacing: .2em;
+  text-align: center;
+  border: 1px solid var(--ping-border);
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color .15s;
+}
+.otp-input:focus {
+  border-color: var(--ping-blue);
+  box-shadow: 0 0 0 3px rgba(0,100,255,.1);
+}
+
 /* Order success / denied */
 
 .order-success {

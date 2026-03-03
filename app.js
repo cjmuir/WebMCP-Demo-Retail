@@ -572,6 +572,41 @@ registerTool(
       throw err;
     }
 
+    // ── MFA step-up: P1AZ returned DENY + MFA_CHALLENGE advice ───────
+    // Server responds 202 (not 4xx) so apiRequest returns the body normally.
+    // We then elicit the OTP and re-POST as a verification pass.
+    if (apiResponse?.challenge === "MFA_REQUIRED") {
+      logToolEvent(
+        `[checkout] P1AZ issued MFA step-up — eliciting OTP via WebMCP Elicitation`,
+        "info"
+      );
+
+      const otpResult = await (client?.requestUserInteraction
+        ? client.requestUserInteraction(
+            () => new Promise((resolve) => showOtpModal(apiResponse.hint, resolve))
+          )
+        : new Promise((resolve) => showOtpModal(apiResponse.hint, resolve)));
+
+      if (otpResult.cancelled) return otpResult;
+
+      // Re-POST with the OTP code so P1AZ can verify
+      let verifyResponse;
+      try {
+        verifyResponse = await apiRequest("POST", "/checkout", {
+          body: { ...requestBody, otpCode: otpResult.otpCode, challengeId: apiResponse.challengeId },
+          requiresAuth: true,
+        });
+      } catch (err) {
+        showOrderDenied(err.message);
+        throw err;
+      }
+
+      showOrderSuccess(verifyResponse.order ?? userDecision.order);
+      cart = {};
+      renderCart();
+      return verifyResponse;
+    }
+
     // apiResponse is null when no real backend is present (demo mode)
     const finalResult = apiResponse ?? {
       success: true,
@@ -733,6 +768,47 @@ function showOrderDenied(reason) {
   const detail = document.getElementById("order-denied-detail");
   if (detail) detail.textContent = reason;
   el.classList.remove("hidden");
+}
+
+// OTP elicitation modal
+// Shown when P1AZ returns DENY + MFA_CHALLENGE advice.
+// Collects the one-time code so the checkout tool can re-POST for verification.
+function showOtpModal(hint, resolvePromise) {
+  const modal  = document.getElementById("modal-otp");
+  const hintEl = document.getElementById("otp-hint");
+  const input  = document.getElementById("otp-input");
+
+  if (hintEl) hintEl.textContent = hint ?? "Enter the OTP sent to your registered email.";
+  if (input)  input.value = "";
+  modal.classList.remove("hidden");
+  // Focus after the repaint so the field is visible
+  requestAnimationFrame(() => input?.focus());
+
+  const submit = document.getElementById("otp-submit");
+  const cancel = document.getElementById("otp-cancel");
+
+  function cleanup() {
+    modal.classList.add("hidden");
+    document.getElementById("otp-submit").replaceWith(submit.cloneNode(true));
+    document.getElementById("otp-cancel").replaceWith(cancel.cloneNode(true));
+  }
+
+  function trySubmit() {
+    const code = document.getElementById("otp-input").value.trim();
+    if (!code) return;
+    cleanup();
+    resolvePromise({ otpCode: code });
+  }
+
+  document.getElementById("otp-submit").addEventListener("click", trySubmit, { once: true });
+  document.getElementById("otp-cancel").addEventListener("click", () => {
+    cleanup();
+    resolvePromise({ cancelled: true, reason: "User cancelled OTP entry" });
+  }, { once: true });
+  // Also submit on Enter
+  input?.addEventListener("keydown", function onKey(e) {
+    if (e.key === "Enter") { input.removeEventListener("keydown", onKey); trySubmit(); }
+  });
 }
 
 document.addEventListener("click", (e) => {

@@ -114,6 +114,27 @@
           </div>
         </div>
 
+        <!-- MFA / OTP elicitation modal -->
+        <div id="modal-otp" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="otp-modal-title">
+          <div class="modal-backdrop"></div>
+          <div class="modal-card">
+            <h3 id="otp-modal-title">🔒 Step-Up Authentication Required</h3>
+            <p id="otp-hint" class="modal-summary"></p>
+            <div class="modal-note">
+              <span class="elicitation-label">WebMCP Elicitation</span>
+              PingOne Authorize requires MFA to complete this checkout. Enter the one-time code to proceed.
+            </div>
+            <div class="otp-input-row">
+              <input id="otp-input" type="text" inputmode="numeric" autocomplete="one-time-code"
+                     maxlength="8" placeholder="Enter OTP" class="otp-input" />
+            </div>
+            <div class="modal-actions">
+              <button id="otp-cancel" class="btn-ghost">Cancel</button>
+              <button id="otp-submit" class="btn-primary">Verify &amp; Complete</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Order success -->
         <div id="order-success" class="order-success hidden">
           <div class="success-icon">✓</div>

@@ -45,7 +45,7 @@ router.post("/", async (req, res) => {
   );
 
   // ── 3. Request body ─────────────────────────────────────────
-  const { items, total } = req.body ?? {};
+  const { items, total, otpCode, challengeId } = req.body ?? {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Cart is empty or items is missing." });
   }
@@ -62,6 +62,9 @@ router.post("/", async (req, res) => {
     ...agentIdentityParameters(claims),   // WebMCP.clientId, WebMCP.scope
     "WebMCP.orderTotal":     String(total ?? 0),
     "WebMCP.orderItemCount": String(items.length),
+    // Second-pass MFA verification — present only when the user supplied an OTP
+    ...(otpCode     && { "WebMCP.otpCode":     otpCode }),
+    ...(challengeId && { "WebMCP.challengeId": challengeId }),
   };
 
   let decision;
@@ -76,6 +79,27 @@ router.post("/", async (req, res) => {
   }
 
   if (decision.decision !== "PERMIT") {
+    // ── MFA step-up: DENY on first pass + MFA_CHALLENGE advice ──
+    // P1AZ signals step-up by returning DENY with an advice statement whose
+    // id/type/name is "MFA_CHALLENGE".  The obligation in the policy fires the
+    // OTP delivery (email to sub) before we even read this response.
+    // Only intercept on the *first* pass (no otpCode in the request yet).
+    const statements = decision.statements ?? [];
+    const mfaAdvice = !otpCode && statements.find(
+      s => s.id === "MFA_CHALLENGE" || s.type === "MFA_CHALLENGE" || s.name === "MFA_CHALLENGE"
+    );
+
+    if (mfaAdvice) {
+      const cid = mfaAdvice.challengeId ?? mfaAdvice.value?.challengeId ?? null;
+      console.log(`[checkout] MFA challenge issued — sub: ${claims.sub}, challengeId: ${cid}`);
+      return res.status(202).json({
+        challenge:   "MFA_REQUIRED",
+        challengeId: cid,
+        hint:        "An OTP has been sent to your registered email address. Enter it to complete checkout.",
+      });
+    }
+
+    // ── Regular DENY / INDETERMINATE ────────────────────────────
     const isDeny          = decision.decision === "DENY";
     const isIndeterminate = decision.decision === "INDETERMINATE";
     console.warn(`[checkout] Not permitted — sub: ${claims.sub}, decision: ${decision.decision}`);
@@ -84,8 +108,7 @@ router.post("/", async (req, res) => {
               : isIndeterminate ? "No policy matched this request — checkout cannot proceed."
               :                   `Checkout not permitted (decision: ${decision.decision}).`,
       decision: decision.decision,
-      // `statements` carries any advice/obligations returned by the Authorize policy
-      advice:   decision.statements ?? [],
+      advice:   statements,
       user:     { sub: claims.sub, client_id: claims.client_id ?? claims.azp },
     });
   }
