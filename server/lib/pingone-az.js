@@ -67,8 +67,8 @@ const P1_API  = "https://api.pingone.com/v1";
  */
 export function agentIdentityParameters(claims) {
   return {
-    "WebMCP.clientId": claims.client_id ?? claims.azp ?? "",
-    "WebMCP.scope":    claims.scope ?? "",
+    "WebMCP.Request.clientId": claims.client_id ?? claims.azp ?? "",
+    "WebMCP.Request.scope":    claims.scope ?? "",
   };
 }
 

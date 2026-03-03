@@ -59,11 +59,11 @@ router.post("/", async (req, res) => {
   // Dots within names are avoided (P1AZ treats them as sub-folder paths);
   // camelCase is used within the WebMCP. namespace instead.
   const azParameters = {
-    ...agentIdentityParameters(claims),   // WebMCP.clientId, WebMCP.scope
-    "WebMCP.orderTotal":     String(total ?? 0),
-    "WebMCP.orderItemCount": String(items.length),
+    ...agentIdentityParameters(claims),   // WebMCP.Request.clientId, WebMCP.Request.scope
+    "WebMCP.Request.orderTotal":              String(total ?? 0),
+    "WebMCP.Request.orderItemCount":          String(items.length),
     // Second-pass MFA verification — present only when the user supplied an OTP
-    ...(otpCode               && { "WebMCP.otpCode":               otpCode }),
+    ...(otpCode               && { "WebMCP.Request.otpCode":               otpCode }),
     ...(deviceAuthenticationId && { "WebMCP.deviceAuthenticationId": deviceAuthenticationId }),
   };
 
