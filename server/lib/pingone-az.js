@@ -92,12 +92,13 @@ async function getWorkerToken() {
 
   const resp = await fetch(`${P1_BASE}/${envId}/as/token`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type:    "client_credentials",
-      client_id:     clientId,
-      client_secret: clientSecret,
-    }),
+    headers: {
+      "Content-Type":  "application/x-www-form-urlencoded",
+      // PingOne Worker apps use client_secret_basic — credentials in Basic Auth header,
+      // not in the request body (client_secret_post is rejected with 401 invalid_client).
+      "Authorization": "Basic " + btoa(`${clientId}:${clientSecret}`),
+    },
+    body: new URLSearchParams({ grant_type: "client_credentials" }),
   });
 
   if (!resp.ok) {
