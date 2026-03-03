@@ -54,14 +54,14 @@ router.post("/", async (req, res) => {
   // `userContext` carries user identity (handled by requestDecision via claims.sub).
   // `parameters` carries domain context the policy needs to evaluate this action.
   // Key names must match the attribute names defined in your P1AZ policy.
-  // agentIdentityParameters() adds agent.client_id + agent.scope from the AT.
-  // These are the "who is the agent?" signals — separate from the user identity
-  // which flows through userContext. Every tool that calls requestDecision should
-  // spread these in so all policies have a consistent agent signal to work with.
+  // All parameters are prefixed "WebMCP." — this is the P1AZ Trust Framework
+  // namespace folder for this demo, keeping it separate from other policies.
+  // Dots within names are avoided (P1AZ treats them as sub-folder paths);
+  // camelCase is used within the WebMCP. namespace instead.
   const azParameters = {
-    ...agentIdentityParameters(claims),
-    "order.total":      String(total ?? 0),
-    "order.item_count": String(items.length),
+    ...agentIdentityParameters(claims),   // WebMCP.clientId, WebMCP.scope
+    "WebMCP.orderTotal":     String(total ?? 0),
+    "WebMCP.orderItemCount": String(items.length),
   };
 
   let decision;

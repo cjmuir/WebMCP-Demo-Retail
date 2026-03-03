@@ -49,21 +49,26 @@ const P1_API  = "https://api.pingone.com/v1";
  * These parameters give your P1AZ policy consistent, named attributes to
  * condition on for every tool call:
  *
- *   agent.client_id  — which application / agent context is acting
- *   agent.scope      — what permissions were granted to it
+ *   WebMCP.clientId  — which application / agent context is acting
+ *   WebMCP.scope     — what permissions were granted to it
+ *
+ * All parameters are prefixed "WebMCP." — the P1AZ Trust Framework namespace
+ * folder for this demo, keeping it separate from other policies.
+ * Dots within names are avoided (P1AZ treats them as sub-folder paths);
+ * camelCase is used within the WebMCP. namespace instead.
  *
  * User identity (who) is handled separately via userContext.user.id.
  *
  * Spread into azParameters before adding action-specific attributes:
- *   const params = { ...agentIdentityParameters(claims), "order.total": "99" };
+ *   const params = { ...agentIdentityParameters(claims), "WebMCP.orderTotal": "99" };
  *
  * @param {object} claims  Decoded, validated AT payload
  * @returns {object}       Flat key-value pairs ready for the `parameters` block
  */
 export function agentIdentityParameters(claims) {
   return {
-    "agent.client_id": claims.client_id ?? claims.azp ?? "",
-    "agent.scope":     claims.scope ?? "",
+    "WebMCP.clientId": claims.client_id ?? claims.azp ?? "",
+    "WebMCP.scope":    claims.scope ?? "",
   };
 }
 
