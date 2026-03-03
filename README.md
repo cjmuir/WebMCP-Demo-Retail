@@ -1,8 +1,10 @@
 # WebMCP Retail Demo
 
-A fully client-side retail demo that implements the [W3C WebMCP Draft Spec](https://webmachinelearning.github.io/webmcp/) with PingOne OIDC authentication. It demonstrates a key architectural principle:
+A fully client-side retail demo that implements the [W3C WebMCP Draft Spec](https://webmachinelearning.github.io/webmcp/) with PingOne OIDC authentication and **PingOne Authorize policy decisions at checkout**. It demonstrates a key architectural principle:
 
 > **The user's existing OIDC session is sufficient for agent identity — no separate agent OAuth flow is required.**
+
+A checkout request is evaluated by a PingOne Authorize policy before any order is placed. The policy receives the full request context — who the user is, which application is acting, and what they're trying to do — and can return `PERMIT`, `DENY`, or trigger a **step-up MFA challenge** that is surfaced back to the user in the browser as a WebMCP Elicitation.
 
 Live demo: **https://cprice-ping.github.io/WebMCP-Demo-Retail/**
 
@@ -55,7 +57,7 @@ Browser
 | `add_to_cart` | Mutation | Session | Takes `product_id` + `quantity`; updates in-memory `cart{}` |
 | `view_cart` | Read | Session | `readOnlyHint: true`; returns cart contents + total as JSON |
 | `remove_from_cart` | Mutation | Session | Takes `product_id`; removes it entirely from `cart{}` |
-| `checkout` | Elicitation → `POST /api/checkout` | Session + Bearer | Uses `client.requestUserInteraction()` for user confirmation before posting |
+| `checkout` | Elicitation → `POST /api/checkout` | Session + Bearer | Elicits user confirmation, then POSTs to the server. The server validates the AT, calls PingOne Authorize, and either permits the order, denies it, or issues a step-up MFA challenge. On challenge, a second Elicitation collects the OTP, which is re-submitted to P1AZ for verification. |
 
 ### Session Guard
 
@@ -74,6 +76,20 @@ function requireSession() {
 ### Elicitation (checkout)
 
 `checkout` uses the WebMCP spec's `client.requestUserInteraction(callback)` to pause and ask the user for confirmation before the `POST` is sent. When called from the UI, a `mockClient` is used that invokes the callback immediately (the modal is already in-page). When called by a native `navigator.modelContext` agent, the host provides a real `ModelContextClient`.
+
+If PingOne Authorize returns a **step-up MFA challenge**, a *second* elicitation fires automatically to collect the OTP the user received by email, without any additional agent turn. The full loop:
+
+```
+Agent calls checkout
+  → Elicitation 1: confirm purchase (user clicks OK)
+  → POST /api/checkout  (first pass)
+  → P1AZ: DENY + deny-stepup advice  (OTP sent to user's email)
+  → Server: 202 { challenge: "MFA_REQUIRED", deviceAuthenticationId }
+  → Elicitation 2: enter OTP
+  → POST /api/checkout  (second pass, includes otpCode + deviceAuthenticationId)
+  → P1AZ: PERMIT
+  → Order placed
+```
 
 This is distinct from the MCP Protocol `elicitation/create` mechanism — because the tool and DOM share the same process, there's no need for the round-trip protocol complexity.
 
@@ -216,12 +232,27 @@ server/
 POST /api/checkout
   Authorization: Bearer <user_AT>
 
+  First pass:
   1. Validate AT signature via PingOne JWKS  (server can do this; browser cannot)
   2. client_credentials → PingOne worker token  (secret never leaves the server)
   3. POST /decisionEndpoints/{id}
-       parameters: { user: { sub, client_id, scope }, order: { total, item_count } }
-  4. PERMIT → return order receipt
-     DENY   → 403 { decision, advice }  (agent can explain why to the user)
+       parameters:   { WebMCP.Request.clientId, WebMCP.Request.scope,
+                       WebMCP.Request.orderTotal, WebMCP.Request.orderItemCount }
+       userContext:  { user: { id: <sub> } }
+  4a. PERMIT  → return order receipt
+  4b. DENY + deny-stepup advice
+              → 202 { challenge: "MFA_REQUIRED", deviceAuthenticationId }
+              (P1AZ obligation has already sent OTP to user's email)
+  4c. DENY (no step-up) → 403 { decision, advice }
+
+  Second pass (user submitted OTP):
+  1-2. Same AT validation + worker token
+  3. POST /decisionEndpoints/{id}
+       parameters:   { ...same as first pass,
+                       WebMCP.Request.otpCode, WebMCP.Request.deviceAuthenticationId }
+       userContext:  { user: { id: <sub> } }
+  4a. PERMIT  → return order receipt
+  4b. DENY    → 403 { decision, advice }
 ```
 
 ### Local dev
@@ -268,6 +299,56 @@ kubectl apply -f server/k8s/ingress.yaml
 ```
 
 Update `ALLOWED_ORIGIN` in [server/k8s/deployment.yaml](server/k8s/deployment.yaml) to your GitHub Pages URL, and `SHOP_API_BASE` in [config.js](config.js) to your k8s ingress hostname.
+
+---
+
+## PingOne Authorize Policy
+
+The checkout route uses a PingOne Authorize **Decision Endpoint** to evaluate every checkout request before processing the order. The policy receives request context as flat parameters under the `WebMCP.Request` Trust Framework namespace and user identity from `userContext`.
+
+### Trust Framework — `WebMCP` → `Request` folder
+
+Create these attributes under **Authorize → Trust Framework → Attributes → WebMCP → Request**:
+
+| Attribute | Type | Present on |
+|---|---|---|
+| `clientId` | String | Every request |
+| `scope` | String | Every request |
+| `orderTotal` | String | Every request |
+| `orderItemCount` | String | Every request |
+| `otpCode` | String | Second pass only (MFA verification) |
+| `deviceAuthenticationId` | String | Second pass only (MFA verification) |
+
+In decision endpoint parameters these are referenced as e.g. `WebMCP.Request.clientId` (folder path + attribute name).
+
+### Policy — two rules
+
+**Rule 1: First pass → step-up MFA**
+
+Condition: `WebMCP.Request.otpCode` is blank (first pass — no OTP yet provided)
+
+Effect: `DENY`
+
+Obligation: trigger PingOne MFA to send an OTP to the user identified by `userContext.user.id`. The advice statement the server looks for:
+```json
+{ "name": "DENY with MFA AuthN ID", "code": "deny-stepup",
+  "payload": "{\"message\": \"step-up with MFA required\", \"deviceAuthenticationId\": \"<uuid>\"}" }
+```
+
+**Rule 2: Second pass → verify OTP and permit**
+
+Condition: `WebMCP.Request.otpCode` is present **AND** `WebMCP.Request.deviceAuthenticationId` is present
+
+Effect: Use `WebMCP.Request.deviceAuthenticationId` + `WebMCP.Request.otpCode` to call PingOne MFA verify. If the OTP is valid → `PERMIT`. If invalid → `DENY`.
+
+### Worker Application
+
+The server uses a separate **Worker (M2M) Application** — not the browser PKCE client — to call the decision endpoint. It requires:
+- **Grant type:** Client Credentials
+- **Auth method:** Client Secret Basic
+- **Permission:** access to the Decision Endpoints API
+
+Credentials are passed via `AZ_CLIENT_ID` / `AZ_CLIENT_SECRET` env vars and never leave the server.
 
 ---
 
