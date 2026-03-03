@@ -1,27 +1,25 @@
-# Ingress — exposes the ClusterIP Service externally.
-# Replace shopapi.your-domain.com with your actual hostname.
-# Assumes an nginx ingress controller; adjust annotations for other controllers.
-# TLS via cert-manager (replace the issuer annotation if you use a different one).
-
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: shopapi
   namespace: shopmcp
   annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    # TLS cert-manager — remove if you terminate TLS elsewhere
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    # CORS is handled in the Node.js app; disable nginx CORS headers to avoid duplication
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # CORS is handled in the Node.js app — nginx CORS disabled to avoid duplication
     nginx.ingress.kubernetes.io/enable-cors: "false"
 spec:
-  ingressClassName: nginx
+  ingressClassName: nginx-public
   tls:
     - hosts:
-        - shopapi.your-domain.com
+        - webmcp-shopapi.ping-devops.com
       secretName: shopapi-tls
   rules:
-    - host: shopapi.your-domain.com
+    - host: webmcp-shopapi.ping-devops.com
       http:
         paths:
           - path: /

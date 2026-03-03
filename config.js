@@ -20,25 +20,16 @@ const CONFIG = {
   // OIDC scopes to request
   PINGONE_SCOPES: "openid profile email",
 
-  // Backend API base URL — resolved in priority order:
-  //   1. ?apiBase=  query parameter  → explicit override; persisted in sessionStorage
-  //                                    so it survives the OIDC redirect
-  //   2. sessionStorage.apiBase      → restored after redirect when ?apiBase= was set
-  //   3. localhost / 127.0.0.1       → Node.js server via docker-compose
-  //   4. everything else             → static api/ files on GitHub Pages (demo mode)
-  //
-  // Once backend is on k8s, replace branch 4 with the ingress URL and remove branches 1-3.
-  //
-  // Local server behind GitHub Pages:
+  // Backend API base URL.
+  // ?apiBase= query param overrides (persisted in sessionStorage so it survives
+  // the OIDC redirect) — useful for pointing a deployed frontend at a local server:
   //   https://cprice-ping.github.io/WebMCP-Demo-Retail/?apiBase=http://localhost:3000/api
   SHOP_API_BASE: (() => {
     const param = new URLSearchParams(window.location.search).get("apiBase");
     if (param) { sessionStorage.setItem("apiBase", param); return param; }
     const stored = sessionStorage.getItem("apiBase");
     if (stored) return stored;
-    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-      return "http://localhost:3000/api";
-    return window.location.origin + window.location.pathname.replace(/\/$/, "") + "/api";
+    return "https://webmcp-shopapi.ping-devops.com/api";
   })(),
 };
 

@@ -17,8 +17,7 @@ spec:
     spec:
       containers:
         - name: shopapi
-          # Replace with your actual image registry / tag
-          image: your-registry/shopmcp-api:latest
+          image: pricecs/shopmcp-api:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
