@@ -35,7 +35,11 @@ app.use(
 app.use(express.json());
 
 // ── Routes ──────────────────────────────────────────────────
+// Mount at both /api/products and /api/products.json — the browser app
+// calls GET {SHOP_API_BASE}/products.json which matches the static file path
+// on GitHub Pages; the Node server must honour the same URL.
 app.use("/api/products", productsRouter);
+app.use("/api/products.json", productsRouter);
 app.use("/api/checkout", checkoutRouter);
 
 // Health / readiness probe (used by k8s liveness/readiness)
