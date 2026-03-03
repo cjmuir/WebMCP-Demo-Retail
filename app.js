@@ -1004,7 +1004,9 @@ document.getElementById("btn-login").addEventListener("click", startLogin);
 }());
 
 document.getElementById("btn-logout").addEventListener("click", () => {
+  const apiBase = sessionStorage.getItem("apiBase"); // preserve across logout if set
   sessionStorage.clear();
+  if (apiBase) sessionStorage.setItem("apiBase", apiBase);
   idTokenClaims = null;
   idTokenRaw = null;
   cart = {};
