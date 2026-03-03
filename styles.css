@@ -455,7 +455,7 @@ code, .mono {
   justify-content: flex-end;
 }
 
-/* Order success */
+/* Order success / denied */
 
 .order-success {
   background: #f0fdf4;
@@ -475,6 +475,30 @@ code, .mono {
   width: 40px;
   height: 40px;
   background: var(--green);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.order-denied {
+  background: #fff1f2;
+  border: 1px solid #fca5a5;
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  text-align: center;
+  margin-top: 1.5rem;
+}
+.order-denied h3 { margin: .5rem 0 .25rem; color: #dc2626; }
+.order-denied p  { font-size: .875rem; color: var(--ping-muted); margin: 0 0 1rem; word-break: break-word; }
+
+.denied-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: #dc2626;
   color: #fff;
   border-radius: 50%;
   font-size: 1.1rem;

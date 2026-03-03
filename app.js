@@ -559,10 +559,18 @@ registerTool(
       total: userDecision.order.total,
     };
 
-    const apiResponse = await apiRequest("POST", "/checkout", {
-      body: requestBody,
-      requiresAuth: true,
-    });
+    let apiResponse;
+    try {
+      apiResponse = await apiRequest("POST", "/checkout", {
+        body: requestBody,
+        requiresAuth: true,
+      });
+    } catch (err) {
+      // API denied or unreachable — surface the reason in the UI and re-throw
+      // so the tool console also logs it as an error.
+      showOrderDenied(err.message);
+      throw err;
+    }
 
     // apiResponse is null when no real backend is present (demo mode)
     const finalResult = apiResponse ?? {
@@ -570,6 +578,11 @@ registerTool(
       source: "demo-simulated",
       order: userDecision.order,
     };
+
+    // Order was accepted — now update the UI
+    showOrderSuccess(finalResult.order ?? userDecision.order);
+    cart = {};
+    renderCart();
 
     return finalResult;
   }
@@ -693,10 +706,9 @@ function showCheckoutModal(resolvePromise) {
 
   document.getElementById("modal-confirm").addEventListener("click", () => {
     cleanup();
-    const result = { success: true, order: { ...cartSummary(), order_id: "ORD-" + Date.now() } };
-    showOrderSuccess(result.order);
-    cart = {};
-    renderCart();
+    // Do NOT show success here — wait for the API response first.
+    // Success/failure UI is rendered by the checkout tool after the POST returns.
+    const result = { order: { ...cartSummary(), order_id: "ORD-" + Date.now() } };
     resolvePromise(result);
   }, { once: true });
 
@@ -707,15 +719,28 @@ function showCheckoutModal(resolvePromise) {
 }
 
 function showOrderSuccess(order) {
+  document.getElementById("order-denied")?.classList.add("hidden");
   const el = document.getElementById("order-success");
   const detail = document.getElementById("order-detail");
   detail.textContent = `Order ${order.order_id} placed — Total: $${order.total.toFixed(2)}`;
   el.classList.remove("hidden");
 }
 
+function showOrderDenied(reason) {
+  document.getElementById("order-success")?.classList.add("hidden");
+  const el = document.getElementById("order-denied");
+  if (!el) return;
+  const detail = document.getElementById("order-denied-detail");
+  if (detail) detail.textContent = reason;
+  el.classList.remove("hidden");
+}
+
 document.addEventListener("click", (e) => {
   if (e.target.id === "btn-continue") {
     document.getElementById("order-success").classList.add("hidden");
+  }
+  if (e.target.id === "btn-continue-denied") {
+    document.getElementById("order-denied").classList.add("hidden");
   }
 });
 
