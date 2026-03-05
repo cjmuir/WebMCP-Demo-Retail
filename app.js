@@ -56,6 +56,50 @@ function showVerifyModal({ hint, qrUrl }, resolvePromise) {
   }, { once: true });
 }
 
+function openVerifyModal({ hint, qrUrl, onCancel }) {
+  const modal = document.getElementById("modal-verify");
+  const hintEl = document.getElementById("verify-hint");
+  const qrImg = document.getElementById("verify-qr-img");
+  const statusEl = document.getElementById("verify-status");
+
+  if (hintEl) hintEl.textContent = hint ?? "Scan the QR code to verify this transaction.";
+  if (qrImg) {
+    qrImg.src = qrUrl || "";
+    qrImg.alt = "Transaction verification QR code";
+  }
+  if (statusEl) statusEl.textContent = "Polling verification status every 4 seconds…";
+
+  modal.classList.remove("hidden");
+
+  const cancelEl = document.getElementById("verify-cancel");
+  const continueEl = document.getElementById("verify-continue");
+  const cancelClone = cancelEl.cloneNode(true);
+  const continueClone = continueEl.cloneNode(true);
+  cancelEl.replaceWith(cancelClone);
+  continueEl.replaceWith(continueClone);
+
+  cancelClone.addEventListener("click", () => onCancel?.(), { once: true });
+
+  return {
+    close() {
+      modal.classList.add("hidden");
+      if (statusEl) statusEl.textContent = "";
+      if (qrImg) {
+        qrImg.removeAttribute("src");
+        qrImg.alt = "";
+      }
+    },
+    setStatus(message) {
+      const el = document.getElementById("verify-status");
+      if (el) el.textContent = message;
+    },
+    setHint(message) {
+      const el = document.getElementById("verify-hint");
+      if (el) el.textContent = message;
+    },
+  };
+}
+
 // ------------------------------------------------------------
 // Auth state
 // ------------------------------------------------------------
@@ -659,6 +703,7 @@ registerTool(
         throw new Error(message);
       }
 
+      let cancelledVerify = false;
       const initialVerifyDecision = await (client?.requestUserInteraction
         ? client.requestUserInteraction(
             () => new Promise((resolve) => showVerifyModal({ hint: apiResponse.hint, qrUrl: apiResponse.qrUrl }, resolve))
@@ -667,12 +712,23 @@ registerTool(
 
       if (initialVerifyDecision?.cancelled) return initialVerifyDecision;
 
+      const verifyView = openVerifyModal({
+        hint: apiResponse.hint,
+        qrUrl: apiResponse.qrUrl,
+        onCancel: () => { cancelledVerify = true; },
+      });
+
       const pollIntervalMs = 4000;
       const maxPollMs = 120000;
       const started = Date.now();
       let verifyResponse = null;
 
       while (Date.now() - started < maxPollMs) {
+        if (cancelledVerify) {
+          verifyView.close();
+          return { cancelled: true, reason: "User cancelled verify transaction flow" };
+        }
+
         await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
 
         try {
@@ -684,34 +740,26 @@ registerTool(
             requiresAuth: true,
           });
         } catch (err) {
+          verifyView.close();
           showOrderDenied(err.message);
           throw err;
         }
 
         if (verifyResponse?.success && verifyResponse?.order) {
+          verifyView.setStatus("Verification complete. Finalizing checkout…");
+          verifyView.close();
           showOrderSuccess(verifyResponse.order ?? userDecision.order);
           cart = {};
           renderCart();
           return verifyResponse;
         }
 
-        // Re-elicit while waiting, so interaction remains spec-channel driven.
         const waitedSec = Math.floor((Date.now() - started) / 1000);
-        const nextDecision = await (client?.requestUserInteraction
-          ? client.requestUserInteraction(
-              () => new Promise((resolve) => showVerifyModal({
-                hint: `${apiResponse.hint ?? "Awaiting verification"} (${waitedSec}s elapsed)`,
-                qrUrl: apiResponse.qrUrl,
-              }, resolve))
-            )
-          : new Promise((resolve) => showVerifyModal({
-              hint: `${apiResponse.hint ?? "Awaiting verification"} (${waitedSec}s elapsed)`,
-              qrUrl: apiResponse.qrUrl,
-            }, resolve)));
-
-        if (nextDecision?.cancelled) return nextDecision;
+        verifyView.setHint(`${apiResponse.hint ?? "Awaiting verification"} (${waitedSec}s elapsed)`);
+        verifyView.setStatus(`Waiting for verification… polling every 4 seconds (${waitedSec}s)`);
       }
 
+      verifyView.close();
       const timeoutMessage = "Verification timed out. Please try checkout again.";
       showOrderDenied(timeoutMessage);
       throw new Error(timeoutMessage);
