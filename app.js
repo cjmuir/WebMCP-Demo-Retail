@@ -16,6 +16,18 @@ const PRODUCTS = [];
 // ------------------------------------------------------------
 let cart = {}; // { productId: quantity }
 
+function showVerifyStartModal({ hint, qrUrl }, resolvePromise) {
+  const view = openVerifyModal({ hint, qrUrl });
+
+  const continueBtn = document.getElementById("verify-continue");
+  const continueClone = continueBtn.cloneNode(true);
+  continueBtn.replaceWith(continueClone);
+
+  continueClone.addEventListener("click", () => {
+    resolvePromise({ proceed: true, view });
+  }, { once: true });
+}
+
 function openVerifyModal({ hint, qrUrl, onCancel }) {
   const modal = document.getElementById("modal-verify");
   const hintEl = document.getElementById("verify-hint");
@@ -663,20 +675,25 @@ registerTool(
         throw new Error(message);
       }
 
-      let cancelledVerify = false;
-      const verifyView = await (client?.requestUserInteraction
+      const verifyStart = await (client?.requestUserInteraction
         ? client.requestUserInteraction(
-            () => Promise.resolve(openVerifyModal({
-              hint: apiResponse.hint,
-              qrUrl: apiResponse.qrUrl,
-              onCancel: () => { cancelledVerify = true; },
-            }))
+            () => new Promise((resolve) => showVerifyStartModal({ hint: apiResponse.hint, qrUrl: apiResponse.qrUrl }, resolve))
           )
-        : Promise.resolve(openVerifyModal({
-            hint: apiResponse.hint,
-            qrUrl: apiResponse.qrUrl,
-            onCancel: () => { cancelledVerify = true; },
-          })));
+        : new Promise((resolve) => showVerifyStartModal({ hint: apiResponse.hint, qrUrl: apiResponse.qrUrl }, resolve)));
+
+      if (verifyStart?.cancelled) return verifyStart;
+
+      let cancelledVerify = false;
+      const verifyView = verifyStart?.view ?? openVerifyModal({
+        hint: apiResponse.hint,
+        qrUrl: apiResponse.qrUrl,
+        onCancel: () => { cancelledVerify = true; },
+      });
+
+      const cancelBtn = document.getElementById("verify-cancel");
+      const cancelClone = cancelBtn.cloneNode(true);
+      cancelBtn.replaceWith(cancelClone);
+      cancelClone.addEventListener("click", () => { cancelledVerify = true; }, { once: true });
 
       const pollIntervalMs = 4000;
       const maxPollMs = 120000;
