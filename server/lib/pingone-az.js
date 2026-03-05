@@ -75,13 +75,22 @@ export function agentIdentityParameters(claims) {
 // In-memory worker token cache
 let _workerToken = null;
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function maskSubject(sub) {
+  if (!sub || typeof sub !== "string") return "(unknown)";
+  return `${sub.slice(0, 8)}…(${sub.length})`;
+}
+
 /**
  * Obtain (or return cached) a client_credentials token for the Worker app.
  * Refreshes automatically when fewer than 60 seconds remain.
  */
 async function getWorkerToken() {
   const nowSec = Math.floor(Date.now() / 1000);
-  if (_workerToken && _workerToken.exp > nowSec + 60) {
+  if (_workerToken && _workerToken.exp > nowSec + 180) {
     return _workerToken.token;
   }
 
@@ -95,30 +104,42 @@ async function getWorkerToken() {
     );
   }
 
-  const resp = await fetch(`${P1_BASE}/${envId}/as/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type":  "application/x-www-form-urlencoded",
-      // PingOne Worker apps use client_secret_basic — credentials in Basic Auth header,
-      // not in the request body (client_secret_post is rejected with 401 invalid_client).
-      "Authorization": "Basic " + btoa(`${clientId}:${clientSecret}`),
-    },
-    body: new URLSearchParams({ grant_type: "client_credentials" }),
-  });
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await fetch(`${P1_BASE}/${envId}/as/token`, {
+        method: "POST",
+        headers: {
+          "Content-Type":  "application/x-www-form-urlencoded",
+          // PingOne Worker apps use client_secret_basic — credentials in Basic Auth header,
+          // not in the request body (client_secret_post is rejected with 401 invalid_client).
+          "Authorization": "Basic " + btoa(`${clientId}:${clientSecret}`),
+        },
+        body: new URLSearchParams({ grant_type: "client_credentials" }),
+      });
 
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`Worker token request failed: ${resp.status} ${body}`);
+      if (!resp.ok) {
+        const body = await resp.text();
+        throw new Error(`Worker token request failed: ${resp.status} ${body}`);
+      }
+
+      const data = await resp.json();
+      _workerToken = {
+        token: data.access_token,
+        exp:   Math.floor(Date.now() / 1000) + (data.expires_in ?? 299),
+      };
+
+      console.log(`[AZ] Worker token refreshed, expires in ${data.expires_in}s`);
+      return _workerToken.token;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 3) {
+        await sleep(150 * 2 ** (attempt - 1));
+      }
+    }
   }
 
-  const data = await resp.json();
-  _workerToken = {
-    token: data.access_token,
-    exp:   nowSec + (data.expires_in ?? 299),
-  };
-
-  console.log(`[AZ] Worker token refreshed, expires in ${data.expires_in}s`);
-  return _workerToken.token;
+  throw lastErr;
 }
 
 /**
@@ -161,7 +182,7 @@ export async function requestDecision(userClaims, parameters = {}) {
     },
   };
 
-  console.log(`[AZ] Decision request — user: ${userClaims.sub}`);
+  console.log(`[AZ] Decision request — user: ${maskSubject(userClaims.sub)}`);
   console.log(`[AZ] Body: ${JSON.stringify(body)}`);
 
 

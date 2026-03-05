@@ -743,7 +743,8 @@ function showCheckoutModal(resolvePromise) {
     cleanup();
     // Do NOT show success here — wait for the API response first.
     // Success/failure UI is rendered by the checkout tool after the POST returns.
-    const result = { order: { ...cartSummary(), order_id: "ORD-" + Date.now() } };
+    const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+    const result = { order: { ...cartSummary(), order_id: `ORD-${Date.now()}-${rand}` } };
     resolvePromise(result);
   }, { once: true });
 

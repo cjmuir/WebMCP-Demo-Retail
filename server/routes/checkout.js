@@ -8,10 +8,60 @@
 //      DENY    → 403 with decision detail so the agent can explain why
 
 import { Router } from "express";
+import { randomUUID } from "crypto";
 import { validateAccessToken } from "../lib/token.js";
 import { requestDecision, agentIdentityParameters } from "../lib/pingone-az.js";
 
 const router = Router();
+
+function maskSubject(sub) {
+  if (!sub || typeof sub !== "string") return "(unknown)";
+  return `${sub.slice(0, 8)}…(${sub.length})`;
+}
+
+function normalizeCheckoutRequest(body = {}) {
+  const { items, total, otpCode, deviceAuthenticationId } = body ?? {};
+
+  if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
+    return { error: "Cart is empty or items is invalid (1-100 items required)." };
+  }
+
+  const normalizedItems = [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") {
+      return { error: "Each item must be an object." };
+    }
+    const qty = Number(item.quantity ?? 0);
+    const lineTotal = Number(item.line_total ?? 0);
+    if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(lineTotal) || lineTotal < 0) {
+      return { error: "Each item must include valid quantity and line_total values." };
+    }
+    normalizedItems.push(item);
+  }
+
+  const computedTotal = normalizedItems.reduce((sum, i) => sum + Number(i.line_total ?? 0), 0);
+  const finalTotal = total === undefined ? computedTotal : Number(total);
+  if (!Number.isFinite(finalTotal) || finalTotal <= 0 || finalTotal > 1_000_000) {
+    return { error: "Total must be a positive number less than 1,000,000." };
+  }
+
+  const cleanOtp = otpCode == null ? undefined : String(otpCode).trim();
+  if (cleanOtp !== undefined && !/^\d{4,8}$/.test(cleanOtp)) {
+    return { error: "OTP code must be 4-8 digits." };
+  }
+
+  const cleanDeviceAuthId = deviceAuthenticationId == null ? undefined : String(deviceAuthenticationId).trim();
+  if (cleanDeviceAuthId !== undefined && cleanDeviceAuthId.length > 128) {
+    return { error: "deviceAuthenticationId is too long." };
+  }
+
+  return {
+    items: normalizedItems,
+    total: finalTotal,
+    otpCode: cleanOtp,
+    deviceAuthenticationId: cleanDeviceAuthId,
+  };
+}
 
 router.post("/", async (req, res) => {
   // ── 1. Bearer token ────────────────────────────────────────
@@ -39,16 +89,17 @@ router.post("/", async (req, res) => {
   }
 
   console.log(
-    `[checkout] AT valid — sub: ${claims.sub}, ` +
+    `[checkout] AT valid — sub: ${maskSubject(claims.sub)}, ` +
     `client_id: ${claims.client_id ?? claims.azp ?? "(none)"}, ` +
     `scope: ${claims.scope ?? "(none)"}`
   );
 
   // ── 3. Request body ─────────────────────────────────────────
-  const { items, total, otpCode, deviceAuthenticationId } = req.body ?? {};
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "Cart is empty or items is missing." });
+  const normalized = normalizeCheckoutRequest(req.body);
+  if (normalized.error) {
+    return res.status(400).json({ error: normalized.error });
   }
+  const { items, total, otpCode, deviceAuthenticationId } = normalized;
 
   // ── 4. PingOne Authorize decision ───────────────────────────
   // `userContext` carries user identity (handled by requestDecision via claims.sub).
@@ -100,7 +151,7 @@ router.post("/", async (req, res) => {
         devAuthId = p?.deviceAuthenticationId ?? null;
       } catch { /* payload not parseable — proceed without the ID */ }
 
-      console.log(`[checkout] MFA step-up — sub: ${claims.sub}, deviceAuthenticationId: ${devAuthId}`);
+      console.log(`[checkout] MFA step-up — sub: ${maskSubject(claims.sub)}, deviceAuthenticationId: ${devAuthId}`);
       return res.status(202).json({
         challenge:               "MFA_REQUIRED",
         deviceAuthenticationId:  devAuthId,
@@ -111,7 +162,7 @@ router.post("/", async (req, res) => {
     // ── Regular DENY / INDETERMINATE ────────────────────────────
     const isDeny          = decision.decision === "DENY";
     const isIndeterminate = decision.decision === "INDETERMINATE";
-    console.warn(`[checkout] Not permitted — sub: ${claims.sub}, decision: ${decision.decision}`);
+    console.warn(`[checkout] Not permitted — sub: ${maskSubject(claims.sub)}, decision: ${decision.decision}`);
     return res.status(403).json({
       error:    isDeny          ? "Checkout denied by policy."
               : isIndeterminate ? "No policy matched this request — checkout cannot proceed."
@@ -124,7 +175,7 @@ router.post("/", async (req, res) => {
 
   // ── 5. Process order ────────────────────────────────────────
   const order = {
-    order_id:  `ORD-${Date.now()}`,
+    order_id:  `ORD-${Date.now()}-${randomUUID().split("-")[0]}`,
     items,
     total:     total ?? items.reduce((sum, i) => sum + (i.line_total ?? 0), 0),
     user:      {
