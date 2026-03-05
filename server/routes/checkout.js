@@ -20,7 +20,7 @@ function maskSubject(sub) {
 }
 
 function normalizeCheckoutRequest(body = {}) {
-  const { items, total, otpCode, deviceAuthenticationId } = body ?? {};
+  const { items, total, otpCode, deviceAuthenticationId, verifyTransactionId } = body ?? {};
 
   if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
     return { error: "Cart is empty or items is invalid (1-100 items required)." };
@@ -30,6 +30,31 @@ function normalizeCheckoutRequest(body = {}) {
   for (const item of items) {
     if (!item || typeof item !== "object") {
       return { error: "Each item must be an object." };
+    }
+
+    const verifyAdvice = statements.find(s => s.code === "deny-verify");
+    if (verifyAdvice) {
+      let verifyTransactionId = null;
+      let qrUrl = null;
+      let hint = "Scan the QR code to verify this transaction.";
+      try {
+        const p = typeof verifyAdvice.payload === "string"
+          ? JSON.parse(verifyAdvice.payload)
+          : verifyAdvice.payload;
+        verifyTransactionId = p?.verifyTransactionId ?? null;
+        qrUrl = p?.qrUrl ?? null;
+        hint = p?.message ?? hint;
+      } catch {
+        // ignore payload parse errors; response still signals verify challenge
+      }
+
+      console.log(`[checkout] Verify step-up — sub: ${maskSubject(claims.sub)}, verifyTransactionId: ${verifyTransactionId}`);
+      return res.status(202).json({
+        challenge: "VERIFY_REQUIRED",
+        verifyTransactionId,
+        qrUrl,
+        hint,
+      });
     }
     const qty = Number(item.quantity ?? 0);
     const lineTotal = Number(item.line_total ?? 0);
@@ -55,11 +80,17 @@ function normalizeCheckoutRequest(body = {}) {
     return { error: "deviceAuthenticationId is too long." };
   }
 
+  const cleanVerifyTxId = verifyTransactionId == null ? undefined : String(verifyTransactionId).trim();
+  if (cleanVerifyTxId !== undefined && cleanVerifyTxId.length > 128) {
+    return { error: "verifyTransactionId is too long." };
+  }
+
   return {
     items: normalizedItems,
     total: finalTotal,
     otpCode: cleanOtp,
     deviceAuthenticationId: cleanDeviceAuthId,
+    verifyTransactionId: cleanVerifyTxId,
   };
 }
 
@@ -99,7 +130,7 @@ router.post("/", async (req, res) => {
   if (normalized.error) {
     return res.status(400).json({ error: normalized.error });
   }
-  const { items, total, otpCode, deviceAuthenticationId } = normalized;
+  const { items, total, otpCode, deviceAuthenticationId, verifyTransactionId } = normalized;
 
   // ── 4. PingOne Authorize decision ───────────────────────────
   // `userContext` carries user identity (handled by requestDecision via claims.sub).
@@ -116,6 +147,7 @@ router.post("/", async (req, res) => {
     // Second-pass MFA verification — present only when the user supplied an OTP
     ...(otpCode               && { "WebMCP.Request.otpCode":               otpCode }),
     ...(deviceAuthenticationId && { "WebMCP.Request.deviceAuthenticationId": deviceAuthenticationId }),
+    ...(verifyTransactionId    && { "WebMCP.Request.verifyTransactionId":    verifyTransactionId }),
   };
 
   let decision;

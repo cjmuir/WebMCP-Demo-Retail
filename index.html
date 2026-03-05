@@ -20,6 +20,26 @@
           <p class="brand-tagline">A WebMCP Retail Demo</p>
         </div>
 
+        <!-- Verify transaction (QR + polling) elicitation modal -->
+        <div id="modal-verify" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="verify-modal-title">
+          <div class="modal-backdrop"></div>
+          <div class="modal-card">
+            <h3 id="verify-modal-title">🔐 Verify Transaction</h3>
+            <p id="verify-hint" class="modal-summary"></p>
+            <div class="modal-note">
+              <span class="elicitation-label">WebMCP Elicitation</span>
+              Scan this QR code to approve the transaction. Checkout will continue automatically once verification completes.
+            </div>
+            <div class="verify-qr-wrap">
+              <img id="verify-qr-img" class="verify-qr-img" alt="" />
+            </div>
+            <p id="verify-status" class="verify-status"></p>
+            <div class="modal-actions">
+              <button id="verify-cancel" class="btn-ghost">Cancel</button>
+            </div>
+          </div>
+        </div>
+
         <div class="narrative-block">
           <p>
             This demo shows that <strong>session + client_id is sufficient
