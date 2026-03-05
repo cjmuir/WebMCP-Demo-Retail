@@ -16,46 +16,6 @@ const PRODUCTS = [];
 // ------------------------------------------------------------
 let cart = {}; // { productId: quantity }
 
-function showVerifyModal({ hint, qrUrl }, resolvePromise) {
-  const modal = document.getElementById("modal-verify");
-  const hintEl = document.getElementById("verify-hint");
-  const qrImg = document.getElementById("verify-qr-img");
-  const statusEl = document.getElementById("verify-status");
-
-  if (hintEl) hintEl.textContent = hint ?? "Scan the QR code to verify this transaction.";
-  if (qrImg) {
-    qrImg.src = qrUrl || "";
-    qrImg.alt = "Transaction verification QR code";
-  }
-  if (statusEl) statusEl.textContent = "Polling verification status every 4 seconds…";
-
-  modal.classList.remove("hidden");
-
-  const cancel = document.getElementById("verify-cancel");
-  const cont = document.getElementById("verify-continue");
-
-  function cleanup() {
-    modal.classList.add("hidden");
-    if (statusEl) statusEl.textContent = "";
-    if (qrImg) {
-      qrImg.removeAttribute("src");
-      qrImg.alt = "";
-    }
-    document.getElementById("verify-cancel").replaceWith(cancel.cloneNode(true));
-    document.getElementById("verify-continue").replaceWith(cont.cloneNode(true));
-  }
-
-  document.getElementById("verify-cancel").addEventListener("click", () => {
-    cleanup();
-    resolvePromise({ cancelled: true, reason: "User cancelled verify transaction flow" });
-  }, { once: true });
-
-  document.getElementById("verify-continue").addEventListener("click", () => {
-    cleanup();
-    resolvePromise({ proceed: true });
-  }, { once: true });
-}
-
 function openVerifyModal({ hint, qrUrl, onCancel }) {
   const modal = document.getElementById("modal-verify");
   const hintEl = document.getElementById("verify-hint");
@@ -704,19 +664,19 @@ registerTool(
       }
 
       let cancelledVerify = false;
-      const initialVerifyDecision = await (client?.requestUserInteraction
+      const verifyView = await (client?.requestUserInteraction
         ? client.requestUserInteraction(
-            () => new Promise((resolve) => showVerifyModal({ hint: apiResponse.hint, qrUrl: apiResponse.qrUrl }, resolve))
+            () => Promise.resolve(openVerifyModal({
+              hint: apiResponse.hint,
+              qrUrl: apiResponse.qrUrl,
+              onCancel: () => { cancelledVerify = true; },
+            }))
           )
-        : new Promise((resolve) => showVerifyModal({ hint: apiResponse.hint, qrUrl: apiResponse.qrUrl }, resolve)));
-
-      if (initialVerifyDecision?.cancelled) return initialVerifyDecision;
-
-      const verifyView = openVerifyModal({
-        hint: apiResponse.hint,
-        qrUrl: apiResponse.qrUrl,
-        onCancel: () => { cancelledVerify = true; },
-      });
+        : Promise.resolve(openVerifyModal({
+            hint: apiResponse.hint,
+            qrUrl: apiResponse.qrUrl,
+            onCancel: () => { cancelledVerify = true; },
+          })));
 
       const pollIntervalMs = 4000;
       const maxPollMs = 120000;
