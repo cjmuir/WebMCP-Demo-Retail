@@ -28,7 +28,7 @@
             <p id="verify-hint" class="modal-summary"></p>
             <div class="modal-note">
               <span class="elicitation-label">WebMCP Elicitation</span>
-              Scan this QR code to approve the transaction. Checkout will continue automatically once verification completes.
+              Scan this QR code to approve the transaction. We will poll every 4 seconds and continue automatically after permit.
             </div>
             <div class="verify-qr-wrap">
               <img id="verify-qr-img" class="verify-qr-img" alt="" />
@@ -36,6 +36,7 @@
             <p id="verify-status" class="verify-status"></p>
             <div class="modal-actions">
               <button id="verify-cancel" class="btn-ghost">Cancel</button>
+              <button id="verify-continue" class="btn-primary">Keep Waiting</button>
             </div>
           </div>
         </div>
