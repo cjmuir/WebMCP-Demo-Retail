@@ -1,23 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: shopapi
+  name: shopapi-cjm
   namespace: shopmcp
   labels:
-    app: shopapi
+    app: shopapi-cjm
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: shopapi
+      app: shopapi-cjm
   template:
     metadata:
       labels:
-        app: shopapi
+        app: shopapi-cjm
     spec:
       containers:
-        - name: shopapi
-          image: pricecs/shopmcp-api:latest
+        - name: shopapi-cjm
+          # Use the image pushed to GitHub Container Registry
+          image: ghcr.io/cjmuir/webmcp-api:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -26,7 +27,9 @@ spec:
             - name: PORT
               value: "3000"
             - name: ALLOWED_ORIGIN
-              value: "https://cprice-ping.github.io"
+              # allow requests from the frontend hosted on GitHub Pages
+              # update this if you change the pages URL
+              value: "https://cjmuir.github.io/WebMCP-Demo-Retail"
           # Secret env vars — sourced from the Secret
           envFrom:
             - secretRef:
