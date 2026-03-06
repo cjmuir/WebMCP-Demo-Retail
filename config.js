@@ -15,7 +15,7 @@ const CONFIG = {
   // Auto-derived from the current page URL (query string stripped).
   // This must exactly match a Redirect URI registered in your PingOne application.
   // Override with a hardcoded string if auto-detection doesn't match your registration.
-  PINGONE_REDIRECT_URI: window.location.origin + window.location.pathname,
+  PINGONE_REDIRECT_URI: "https://cjmuir.github.io/WebMCP-Demo-Retail/",
 
   // OIDC scopes to request
   PINGONE_SCOPES: "openid profile email",
