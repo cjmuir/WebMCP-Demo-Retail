@@ -9,7 +9,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: shopapi-products
-  namespace: shopmcp
+  namespace: ping-devops-cjmuir
 data:
   products.json: |
     {
