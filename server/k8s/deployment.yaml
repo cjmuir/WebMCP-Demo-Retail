@@ -15,6 +15,8 @@ spec:
       labels:
         app: shopapi-cjm
     spec:
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
         - name: shopapi-cjm
           # Use the image pushed to GitHub Container Registry
@@ -29,7 +31,7 @@ spec:
             - name: ALLOWED_ORIGIN
               # allow requests from the frontend hosted on GitHub Pages
               # update this if you change the pages URL
-              value: "https://cjmuir.github.io/WebMCP-Demo-Retail"
+              value: "https://cjmuir.github.io"
           # Secret env vars — sourced from the Secret
           envFrom:
             - secretRef:
