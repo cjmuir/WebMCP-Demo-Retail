@@ -601,6 +601,12 @@ code, .mono {
   color: var(--ping-blue);
 }
 
+.panel-badge-api {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: var(--green);
+}
+
 .panel-desc {
   font-size: .8rem;
   color: var(--ping-muted);

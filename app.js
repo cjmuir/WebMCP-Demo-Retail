@@ -16,60 +16,112 @@ const PRODUCTS = [];
 // ------------------------------------------------------------
 let cart = {}; // { productId: quantity }
 
-function showVerifyStartModal({ hint, qrUrl }, resolvePromise) {
-  const view = openVerifyModal({ hint, qrUrl });
+// ------------------------------------------------------------
+// Verify modal helpers
+// openVerifyModal: shows the modal and returns a view-handle.
+// Wire cancel BEFORE calling this so the handler is set once.
+// ------------------------------------------------------------
 
-  const continueBtn = document.getElementById("verify-continue");
-  const continueClone = continueBtn.cloneNode(true);
-  continueBtn.replaceWith(continueClone);
-
-  continueClone.addEventListener("click", () => {
-    resolvePromise({ proceed: true, view });
-  }, { once: true });
-}
-
-function openVerifyModal({ hint, qrUrl, onCancel }) {
-  const modal = document.getElementById("modal-verify");
-  const hintEl = document.getElementById("verify-hint");
-  const qrImg = document.getElementById("verify-qr-img");
+function openVerifyModal({ hint, qrUrl }) {
+  const modal    = document.getElementById("modal-verify");
+  const hintEl   = document.getElementById("verify-hint");
+  const qrImg    = document.getElementById("verify-qr-img");
   const statusEl = document.getElementById("verify-status");
 
-  if (hintEl) hintEl.textContent = hint ?? "Scan the QR code to verify this transaction.";
-  if (qrImg) {
-    qrImg.src = qrUrl || "";
-    qrImg.alt = "Transaction verification QR code";
-  }
-  if (statusEl) statusEl.textContent = "Polling verification status every 4 seconds…";
+  if (hintEl)   hintEl.textContent = hint ?? "Scan the QR code to verify this transaction.";
+  if (qrImg)  { qrImg.src = qrUrl || ""; qrImg.alt = "Transaction verification QR code"; }
+  if (statusEl) statusEl.textContent = "Waiting for verification… polling every 4 seconds.";
 
   modal.classList.remove("hidden");
-
-  const cancelEl = document.getElementById("verify-cancel");
-  const continueEl = document.getElementById("verify-continue");
-  const cancelClone = cancelEl.cloneNode(true);
-  const continueClone = continueEl.cloneNode(true);
-  cancelEl.replaceWith(cancelClone);
-  continueEl.replaceWith(continueClone);
-
-  cancelClone.addEventListener("click", () => onCancel?.(), { once: true });
 
   return {
     close() {
       modal.classList.add("hidden");
       if (statusEl) statusEl.textContent = "";
-      if (qrImg) {
-        qrImg.removeAttribute("src");
-        qrImg.alt = "";
-      }
+      if (qrImg)  { qrImg.removeAttribute("src"); qrImg.alt = ""; }
     },
-    setStatus(message) {
+    setStatus(msg) {
       const el = document.getElementById("verify-status");
-      if (el) el.textContent = message;
+      if (el) el.textContent = msg;
     },
-    setHint(message) {
+    setHint(msg) {
       const el = document.getElementById("verify-hint");
-      if (el) el.textContent = message;
+      if (el) el.textContent = msg;
     },
   };
+}
+
+// runVerifyChallenge: single entry-point for the full verify flow.
+// Opens the modal, starts polling, resolves when approved or cancelled.
+// This is safe to await inside a WebMCP elicitation Promise — the polling
+// loop runs asynchronously and the modal stays open while it waits.
+async function runVerifyChallenge({ hint, qrUrl, requestBody }) {
+  return new Promise((resolve) => {
+    let done = false;
+
+    // Wire cancel first, before opening the modal, so we replace
+    // the button exactly once and always have the right handler.
+    const cancelBtn   = document.getElementById("verify-cancel");
+    const cancelClone = cancelBtn.cloneNode(true);
+    cancelBtn.replaceWith(cancelClone);
+    cancelClone.addEventListener("click", () => {
+      if (done) return;
+      done = true;
+      view.close();
+      resolve({ cancelled: true, reason: "User cancelled verify transaction flow" });
+    }, { once: true });
+
+    const view = openVerifyModal({ hint, qrUrl });
+
+    // Polling loop — runs in the background while modal is open.
+    (async () => {
+      const started    = Date.now();
+      const maxMs      = 120_000;
+      const intervalMs = 4_000;
+
+      while (Date.now() - started < maxMs) {
+        if (done) return;
+        await new Promise(r => setTimeout(r, intervalMs));
+        if (done) return;
+
+        const elapsed = Math.floor((Date.now() - started) / 1000);
+        view.setStatus(`Waiting for verification… ${elapsed}s elapsed (polling every 4s)`);
+
+        let resp;
+        try {
+          resp = await apiRequest("POST", "/checkout", {
+            body: requestBody,
+            requiresAuth: true,
+          });
+        } catch (err) {
+          if (done) return;
+          done = true;
+          view.close();
+          resolve({ error: err.message });
+          return;
+        }
+
+        if (resp?.success && resp?.order) {
+          if (done) return;
+          done = true;
+          view.setStatus("Verification complete. Finalising checkout…");
+          view.close();
+          resolve(resp);
+          return;
+        }
+
+        // Still pending — loop again
+        logToolEvent(`[verify] poll ${elapsed}s — still pending`);
+      }
+
+      // Timed out
+      if (!done) {
+        done = true;
+        view.close();
+        resolve({ error: "Verification timed out after 120 seconds. Please try checkout again." });
+      }
+    })();
+  });
 }
 
 // ------------------------------------------------------------
@@ -675,71 +727,25 @@ registerTool(
         throw new Error(message);
       }
 
-      const verifyStart = await (client?.requestUserInteraction
-        ? client.requestUserInteraction(
-            () => new Promise((resolve) => showVerifyStartModal({ hint: apiResponse.hint, qrUrl: apiResponse.qrUrl }, resolve))
-          )
-        : new Promise((resolve) => showVerifyStartModal({ hint: apiResponse.hint, qrUrl: apiResponse.qrUrl }, resolve)));
+      const verifyResult = await (client?.requestUserInteraction
+        ? client.requestUserInteraction(() => runVerifyChallenge({
+            hint:                apiResponse.hint,
+            qrUrl:               apiResponse.qrUrl,
+            requestBody:         { ...requestBody, verifyTransactionId: apiResponse.verifyTransactionId },
+          }))
+        : runVerifyChallenge({
+            hint:                apiResponse.hint,
+            qrUrl:               apiResponse.qrUrl,
+            requestBody:         { ...requestBody, verifyTransactionId: apiResponse.verifyTransactionId },
+          }));
 
-      if (verifyStart?.cancelled) return verifyStart;
+      if (verifyResult.cancelled) return verifyResult;
+      if (verifyResult.error) { showOrderDenied(verifyResult.error); throw new Error(verifyResult.error); }
 
-      let cancelledVerify = false;
-      const verifyView = verifyStart?.view ?? openVerifyModal({
-        hint: apiResponse.hint,
-        qrUrl: apiResponse.qrUrl,
-        onCancel: () => { cancelledVerify = true; },
-      });
-
-      const cancelBtn = document.getElementById("verify-cancel");
-      const cancelClone = cancelBtn.cloneNode(true);
-      cancelBtn.replaceWith(cancelClone);
-      cancelClone.addEventListener("click", () => { cancelledVerify = true; }, { once: true });
-
-      const pollIntervalMs = 4000;
-      const maxPollMs = 120000;
-      const started = Date.now();
-      let verifyResponse = null;
-
-      while (Date.now() - started < maxPollMs) {
-        if (cancelledVerify) {
-          verifyView.close();
-          return { cancelled: true, reason: "User cancelled verify transaction flow" };
-        }
-
-        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-
-        try {
-          verifyResponse = await apiRequest("POST", "/checkout", {
-            body: {
-              ...requestBody,
-              verifyTransactionId: apiResponse.verifyTransactionId,
-            },
-            requiresAuth: true,
-          });
-        } catch (err) {
-          verifyView.close();
-          showOrderDenied(err.message);
-          throw err;
-        }
-
-        if (verifyResponse?.success && verifyResponse?.order) {
-          verifyView.setStatus("Verification complete. Finalizing checkout…");
-          verifyView.close();
-          showOrderSuccess(verifyResponse.order ?? userDecision.order);
-          cart = {};
-          renderCart();
-          return verifyResponse;
-        }
-
-        const waitedSec = Math.floor((Date.now() - started) / 1000);
-        verifyView.setHint(`${apiResponse.hint ?? "Awaiting verification"} (${waitedSec}s elapsed)`);
-        verifyView.setStatus(`Waiting for verification… polling every 4 seconds (${waitedSec}s)`);
-      }
-
-      verifyView.close();
-      const timeoutMessage = "Verification timed out. Please try checkout again.";
-      showOrderDenied(timeoutMessage);
-      throw new Error(timeoutMessage);
+      showOrderSuccess(verifyResult.order ?? userDecision.order);
+      cart = {};
+      renderCart();
+      return verifyResult;
     }
 
     // apiResponse is null when no real backend is present (demo mode)
