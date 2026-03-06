@@ -16,10 +16,10 @@ spec:
   ingressClassName: nginx-public
   tls:
     - hosts:
-        - webmcp-shopapi.ping-devops.com
+        - cjmuir-shopapi.ping-devops.com
       secretName: shopapi-tls
   rules:
-    - host: webmcp-shopapi.ping-devops.com
+    - host: cjmuir-shopapi.ping-devops.com
       http:
         paths:
           - path: /

@@ -6,7 +6,7 @@ A fully client-side retail demo that implements the [W3C WebMCP Draft Spec](http
 
 A checkout request is evaluated by a PingOne Authorize policy before any order is placed. The policy receives the full request context — who the user is, which application is acting, and what they're trying to do — and can return `PERMIT`, `DENY`, or trigger a **step-up MFA challenge** that is surfaced back to the user in the browser as a WebMCP Elicitation.
 
-Live demo: **https://cprice-ping.github.io/WebMCP-Demo-Retail/**
+Live demo: **https://cjmuir.github.io/WebMCP-Demo-Retail/**
 
 ---
 
