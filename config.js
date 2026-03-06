@@ -32,7 +32,7 @@ const CONFIG = {
     // Discard a stored localhost URL when running on a remote origin (e.g. GitHub Pages)
     const storedIsLocal = stored && (stored.includes("localhost") || stored.includes("127.0.0.1"));
     if (stored && !(storedIsLocal && !onLocalhost)) return stored;
-    return "https://webmcp-shopapi.ping-devops.com/api";
+    return "https://your-k8s-api-domain/api";
   })(),
 };
 
