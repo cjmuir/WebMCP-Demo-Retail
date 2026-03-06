@@ -22,15 +22,26 @@ let cart = {}; // { productId: quantity }
 // Wire cancel BEFORE calling this so the handler is set once.
 // ------------------------------------------------------------
 
-function openVerifyModal({ hint, qrUrl }) {
+function openVerifyModal({ hint, qrUrl, webVerificationCode }) {
   const modal    = document.getElementById("modal-verify");
   const hintEl   = document.getElementById("verify-hint");
   const qrImg    = document.getElementById("verify-qr-img");
   const statusEl = document.getElementById("verify-status");
+  const codeWrap = document.getElementById("verify-code-wrap");
+  const codeEl   = document.getElementById("verify-code");
 
   if (hintEl)   hintEl.textContent = hint ?? "Scan the QR code to verify this transaction.";
   if (qrImg)  { qrImg.src = qrUrl || ""; qrImg.alt = "Transaction verification QR code"; }
   if (statusEl) statusEl.textContent = "Waiting for verification… polling every 4 seconds.";
+
+  if (codeWrap && codeEl) {
+    if (webVerificationCode) {
+      codeEl.textContent = webVerificationCode;
+      codeWrap.classList.remove("hidden");
+    } else {
+      codeWrap.classList.add("hidden");
+    }
+  }
 
   modal.classList.remove("hidden");
 
@@ -39,6 +50,8 @@ function openVerifyModal({ hint, qrUrl }) {
       modal.classList.add("hidden");
       if (statusEl) statusEl.textContent = "";
       if (qrImg)  { qrImg.removeAttribute("src"); qrImg.alt = ""; }
+      if (codeWrap) codeWrap.classList.add("hidden");
+      if (codeEl)   codeEl.textContent = "";
     },
     setStatus(msg) {
       const el = document.getElementById("verify-status");
@@ -55,7 +68,7 @@ function openVerifyModal({ hint, qrUrl }) {
 // Opens the modal, starts polling, resolves when approved or cancelled.
 // This is safe to await inside a WebMCP elicitation Promise — the polling
 // loop runs asynchronously and the modal stays open while it waits.
-async function runVerifyChallenge({ hint, qrUrl, requestBody }) {
+async function runVerifyChallenge({ hint, qrUrl, webVerificationCode, requestBody }) {
   return new Promise((resolve) => {
     let done = false;
 
@@ -71,7 +84,7 @@ async function runVerifyChallenge({ hint, qrUrl, requestBody }) {
       resolve({ cancelled: true, reason: "User cancelled verify transaction flow" });
     }, { once: true });
 
-    const view = openVerifyModal({ hint, qrUrl });
+    const view = openVerifyModal({ hint, qrUrl, webVerificationCode });
 
     // Polling loop — runs in the background while modal is open.
     (async () => {
@@ -731,11 +744,13 @@ registerTool(
         ? client.requestUserInteraction(() => runVerifyChallenge({
             hint:                apiResponse.hint,
             qrUrl:               apiResponse.qrUrl,
+            webVerificationCode: apiResponse.webVerificationCode,
             requestBody:         { ...requestBody, verifyTransactionId: apiResponse.verifyTransactionId },
           }))
         : runVerifyChallenge({
             hint:                apiResponse.hint,
             qrUrl:               apiResponse.qrUrl,
+            webVerificationCode: apiResponse.webVerificationCode,
             requestBody:         { ...requestBody, verifyTransactionId: apiResponse.verifyTransactionId },
           }));
 
